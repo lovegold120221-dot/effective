@@ -1,10 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, rtdb, handleDatabaseError, OperationType } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { ref, get, set, push, onValue, query, orderByChild, limitToLast, serverTimestamp, update } from 'firebase/database';
 import { GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
 import { AudioRecorder, AudioStreamer } from './lib/audio';
 import { BIBLE_PERSONALITY } from './lib/personality';
+import type {
+  ChatMessage,
+  ActionTask,
+  BrowserGeoLocation,
+  AgentId,
+  VisualMode,
+  ConversationSeedMode,
+  ToolKey,
+  ToolToggleMap,
+  AgentProfile,
+  StoredAgentSettings,
+  AgentSettings,
+  ToolInteractionModal,
+  TranscriptEntry,
+  ToolCallEntry,
+  ToolCallSummary,
+  PendingToolCall,
+} from './lib/types';
+import { classifyActionRisk, requiresConfirmation, OAUTH_SCOPES } from './lib/permissions';
+import { loadGrantedScopes, saveGrantedScopes, requestAdditionalScope, getGrantedCount, getScopesToRequest } from './lib/oauth';
+import type { OAuthScopeState } from './lib/types';
+import DesktopViewport from './components/DesktopViewport';
+import ToolConfirmationModal from './components/ToolConfirmationModal';
+import StreamingText from './components/StreamingText';
 import {
   BrainCircuit,
   Camera,
@@ -17,12 +41,14 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  PanelRight,
   Power,
   RotateCcw,
   Save,
   Settings2,
   ShieldCheck,
   Square,
+  Trash2,
   UserRound,
   Video,
   VideoOff,
@@ -31,68 +57,6 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
-interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-  timestamp: number;
-}
-
-interface ActionTask {
-  id: string;
-  serviceName: string;
-  action: string;
-  status: 'processing' | 'completed' | 'failed';
-  result?: string;
-}
-
-interface BrowserGeoLocation {
-  latitude: number;
-  longitude: number;
-  accuracy?: number;
-  timestamp: number;
-}
-
-type AgentId = 'maximus' | 'beatrice';
-type VisualMode = 'off' | 'front' | 'back' | 'screen';
-type ConversationSeedMode = 'memory' | 'news' | 'idea' | 'quiet';
-type ToolKey = 'gmail' | 'drive' | 'context' | 'vision';
-type ToolToggleMap = Record<ToolKey, boolean>;
-
-interface AgentProfile {
-  id: AgentId;
-  label: string;
-  voiceName: string;
-  systemPrompt: string;
-  description: string;
-}
-
-interface StoredAgentSettings {
-  systemPrompt: string;
-  avatarUrl?: string;
-}
-
-interface AgentSettings {
-  agentId: AgentId;
-  personaName: string;
-  systemPrompt: string;
-  avatarUrl: string;
-  agents: Record<AgentId, StoredAgentSettings>;
-  persistentBasePrompt: string;
-  visualMode?: VisualMode;
-  conversationSeedMode?: ConversationSeedMode;
-  enabledTools?: ToolToggleMap;
-  autoDescribeVisual?: boolean;
-}
-
-interface ToolInteractionModal {
-  id: string;
-  title: string;
-  serviceName: string;
-  action: string;
-  status: 'processing' | 'completed' | 'failed';
-  message: string;
-  result?: string;
-}
 
 const DEFAULT_TOOL_TOGGLES: ToolToggleMap = {
   gmail: true,
@@ -464,11 +428,22 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState('');
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
-  const [tasks, setTasks] = useState<ActionTask[]>([]);
   const [historyContext, setHistoryContext] = useState('');
   const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]);
-  const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [showViewport, setShowViewport] = useState(false);
+
+  // Improvement #1: Transcript entries
+  const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([]);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
+  const [streamingRole, setStreamingRole] = useState<'user' | 'model' | null>(null);
+
+  // Improvement #2 + #5: Tool calls
+  const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([]);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingToolCall | null>(null);
+
+  // Improvement #3: OAuth scopes
+  const [oauthScopes, setOauthScopes] = useState<OAuthScopeState[]>(() => loadGrantedScopes(user.uid));
   const [showSidebar, setShowSidebar] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showVisualPage, setShowVisualPage] = useState(false);
@@ -506,6 +481,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const silenceTimerRef = useRef<any>(null);
   const silentNudgeCountRef = useRef(0);
   const pulseTimerRef = useRef<any>(null);
+  const pendingConfirmationRef = useRef<PendingToolCall | null>(null);
 
   const conversationSeedPrompt = useMemo(() => {
     const mode = settings.conversationSeedMode || 'memory';
@@ -634,6 +610,91 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
     }
   };
 
+  // --- New tool call helpers ---
+  const addToolCallEntry = (entry: Omit<ToolCallEntry, 'startedAt' | 'dismissed'> & { startedAt?: number; dismissed?: boolean }) => {
+    const full: ToolCallEntry = {
+      ...entry,
+      startedAt: entry.startedAt || Date.now(),
+      dismissed: entry.dismissed ?? false,
+    };
+    setToolCalls((prev) => [...prev, full]);
+    return entry.id;
+  };
+
+  const updateToolCallEntry = (id: string, patch: Partial<ToolCallEntry>) => {
+    setToolCalls((prev) => prev.map((tc) => (tc.id === id ? { ...tc, ...patch } : tc)));
+  };
+
+  const dismissToolCall = (id: string) => {
+    setToolCalls((prev) => prev.map((tc) => (tc.id === id ? { ...tc, dismissed: true } : tc)));
+  };
+
+  const clearDismissedToolCalls = () => {
+    setToolCalls((prev) => prev.filter((tc) => !tc.dismissed));
+  };
+
+  const confirmToolCall = useCallback((id: string) => {
+    setPendingConfirmation(null);
+    updateToolCallEntry(id, { status: 'processing' });
+    // execution happens in the promise chain set up when pendingConfirmation was created
+  }, []);
+
+  const denyToolCall = useCallback((id: string) => {
+    setPendingConfirmation(null);
+    updateToolCallEntry(id, { status: 'denied', completedAt: Date.now() });
+    const session = sessionRef.current;
+    if (session) {
+      const pc = pendingConfirmationRef.current;
+      if (pc && pc.id === id) {
+        session.sendToolResponse({
+          functionResponses: [{ id: pc.callRef.id, name: pc.callRef.name, response: { result: 'User denied this action.' } }],
+        });
+      }
+    }
+  }, []);
+
+  // --- New transcript helpers ---
+  const addTranscriptEntry = (role: 'user' | 'model', text: string, isComplete = true, toolResults?: ToolCallSummary[]) => {
+    const entry: TranscriptEntry = {
+      id: createTaskId(),
+      role,
+      text: text.trim(),
+      timestamp: Date.now(),
+      isComplete,
+      toolResults,
+    };
+    setTranscriptEntries((prev) => [...prev, entry]);
+    if (isComplete && text.trim()) saveMessage(role, text.trim());
+  };
+
+  const updateLastTranscriptEntry = (text: string, isComplete = false) => {
+    setTranscriptEntries((prev) => {
+      if (prev.length === 0) return prev;
+      const updated = [...prev];
+      const last = { ...updated[updated.length - 1], text, isComplete };
+      updated[updated.length - 1] = last;
+      return updated;
+    });
+  };
+
+  const showModelText = (text: string, save = true) => {
+    const cleaned = text.trim();
+    if (!cleaned) return;
+    transcriptRef.current = { role: 'model', text: cleaned };
+    setStreamingText(null);
+    setStreamingRole(null);
+    setIsAgentSpeaking(true);
+    setSpeakerPulseLevel(0.75 + Math.random() * 0.25);
+    addTranscriptEntry('model', cleaned, true);
+    if (save) saveMessage('model', cleaned);
+    // auto-clear speaking state after a reasonable display time
+    setTimeout(() => {
+      setIsAgentSpeaking(false);
+      setSpeakerPulseLevel(0.18);
+    }, 4200);
+  };
+
+  // Keep old toolModal for backward compat during transition
   const showToolInteraction = (payload: Omit<ToolInteractionModal, 'id'>) => {
     const id = createTaskId();
     setToolModal({ id, ...payload });
@@ -645,22 +706,11 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
     if (autoClose) setTimeout(() => setToolModal((current) => (current?.id === id ? null : current)), 6500);
   };
 
-  const showModelText = (text: string, save = true) => {
-    const cleaned = text.trim();
-    if (!cleaned) return;
-    transcriptRef.current = { role: 'model', text: cleaned };
-    setCurrentTranscript({ role: 'model', text: cleaned });
-    setIsAgentSpeaking(true);
-    setSpeakerPulseLevel(0.75 + Math.random() * 0.25);
-    if (transcriptTimeoutRef.current) clearTimeout(transcriptTimeoutRef.current);
-    transcriptTimeoutRef.current = setTimeout(() => {
-      setCurrentTranscript(null);
-      transcriptRef.current = null;
-      setIsAgentSpeaking(false);
-      setSpeakerPulseLevel(0.18);
-    }, 4200);
-    if (save) saveMessage('model', cleaned);
-  };
+  const clearTranscript = useCallback(() => {
+    setTranscriptEntries([]);
+    setStreamingText(null);
+    setStreamingRole(null);
+  }, []);
 
   const sendHumanSilenceNudge = (reason: 'initial' | 'long-silence' | 'mic-check') => {
     if (!isActiveRef.current) return;
@@ -714,6 +764,8 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const executeGoogleService = async (call: any, taskId: string, modalId: string) => {
     const { serviceName, action, details } = call.args as any;
 
+    updateToolCallEntry(taskId, { status: 'processing' });
+
     try {
       const token = await user.getIdToken();
       const response = await fetch('/api/agent/google-action', {
@@ -737,22 +789,23 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       const data = await response.json();
       const result = data?.result || 'Action completed.';
 
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'completed', result } : t)));
+      updateToolCallEntry(taskId, { status: 'completed', result, completedAt: Date.now() });
       updateToolInteraction(modalId, { status: 'completed', message: 'Done. Tool result is ready.', result });
-      setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
 
       return { result };
     } catch (error: any) {
-      const result = error?.message || 'The backend action failed.';
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'failed', result } : t)));
-      updateToolInteraction(modalId, { status: 'failed', message: 'Tool call failed.', result });
-      setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
-      return { result: `The background action failed: ${result}` };
+      const errMsg = error?.message || 'The backend action failed.';
+      updateToolCallEntry(taskId, { status: 'failed', error: errMsg, completedAt: Date.now() });
+      updateToolInteraction(modalId, { status: 'failed', message: 'Tool call failed.', result: errMsg });
+      return { result: `The background action failed: ${errMsg}` };
     }
   };
 
   const runDemoTool = (serviceName: string, action: string) => {
     const taskId = createTaskId();
+    const risk = classifyActionRisk(action, serviceName);
+    addToolCallEntry({ id: taskId, serviceName, action, status: 'processing', risk });
+
     const modalId = showToolInteraction({
       title: serviceName.includes('Drive') ? 'Checking Google Drive' : serviceName.includes('Gmail') ? 'Reading Gmail' : 'Tool Call',
       serviceName,
@@ -761,7 +814,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       message: 'Running backend tool call...',
     });
 
-    setTasks((current) => [...current, { id: taskId, serviceName, action, status: 'processing' }]);
+    updateToolCallEntry(taskId, { status: 'processing' });
 
     fetch('/api/agent/google-action', {
       method: 'POST',
@@ -774,16 +827,13 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       })
       .then((data) => {
         const result = data?.result || `${serviceName} call completed.`;
-        setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: 'completed', result } : task)));
+        updateToolCallEntry(taskId, { status: 'completed', result, completedAt: Date.now() });
         updateToolInteraction(modalId, { status: 'completed', message: 'Done. Tool result is ready.', result });
       })
       .catch((error) => {
-        const result = error?.message || `${serviceName} call failed.`;
-        setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: 'failed', result } : task)));
-        updateToolInteraction(modalId, { status: 'failed', message: 'Tool call failed.', result });
-      })
-      .finally(() => {
-        setTimeout(() => setTasks((current) => current.filter((task) => task.id !== taskId)), 10000);
+        const errMsg = error?.message || `${serviceName} call failed.`;
+        updateToolCallEntry(taskId, { status: 'failed', error: errMsg, completedAt: Date.now() });
+        updateToolInteraction(modalId, { status: 'failed', message: 'Tool call failed.', result: errMsg });
       });
   };
 
@@ -1007,16 +1057,18 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
                   const text = (finalText || interimText).trim();
                   if (text) {
-                    transcriptRef.current = { text, role: 'user' };
-                    setCurrentTranscript({ text, role: 'user' });
                     silentNudgeCountRef.current = 0;
                     resetSilenceTimer();
                     setUserAudioLevel(0.65 + Math.random() * 0.25);
-                    if (transcriptTimeoutRef.current) clearTimeout(transcriptTimeoutRef.current);
-                    transcriptTimeoutRef.current = setTimeout(() => setCurrentTranscript(null), 3000);
+                    if (finalText.trim()) {
+                      addTranscriptEntry('user', finalText.trim(), true);
+                      setStreamingText(null);
+                      setStreamingRole(null);
+                    } else {
+                      setStreamingText(interimText.trim());
+                      setStreamingRole('user');
+                    }
                   }
-
-                  if (finalText.trim()) saveMessage('user', finalText.trim());
                 };
                 recognitionRef.current.onend = () => {
                   if (isActiveRef.current) {
@@ -1068,33 +1120,105 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
             }
           },
           onmessage: async (msg: LiveServerMessage) => {
+            // Tool call handling with confirmation gate
             if (msg.toolCall) {
               const calls = msg.toolCall.functionCalls;
-              const responses = [];
+              const responses: any[] = [];
 
               if (calls) {
                 for (const call of calls) {
                   if (call.name === 'execute_google_service') {
-                    const { serviceName, action } = call.args as any;
+                    const { serviceName, action, details } = call.args as any;
                     const taskId = createTaskId();
-                    const modalId = showToolInteraction({
+                    const risk = classifyActionRisk(action, serviceName);
+                    const needsConfirm = requiresConfirmation(action, serviceName);
+
+                    // Create tool call entry
+                    addToolCallEntry({
+                      id: taskId,
+                      serviceName,
+                      action,
+                      status: needsConfirm ? 'pending_confirmation' : 'processing',
+                      risk,
+                    });
+
+                    // Show tool interaction modal
+                    showToolInteraction({
                       title: `${serviceName} Tool Call`,
                       serviceName,
                       action,
-                      status: 'processing',
-                      message: 'Running backend tool call...',
+                      status: needsConfirm ? 'processing' : 'processing',
+                      message: needsConfirm ? 'Waiting for confirmation...' : 'Running backend tool call...',
                     });
 
-                    setTasks((prev) => [...prev, { id: taskId, serviceName, action, status: 'processing' }]);
-                    const response = await executeGoogleService(call, taskId, modalId);
-                    responses.push({ id: call.id, name: call.name, response });
+                    if (needsConfirm) {
+                      // Auto-expand viewport when pending confirmation
+                      setShowViewport(true);
+
+                      const pending: PendingToolCall = {
+                        id: taskId,
+                        serviceName,
+                        action,
+                        details: details || {},
+                        callRef: { id: call.id, name: call.name },
+                        risk,
+                      };
+
+                      // Store in ref for denyToolCall access
+                      pendingConfirmationRef.current = pending;
+                      setPendingConfirmation(pending);
+
+                      // Wait for user action via promise
+                      const result = await new Promise<{ confirmed: boolean }>((resolve) => {
+                        const checkInterval = setInterval(() => {
+                          const current = pendingConfirmationRef.current;
+                          if (!current || current.id !== taskId) {
+                            clearInterval(checkInterval);
+                            // Check if it was confirmed (status changed to processing) or denied
+                            setToolCalls((prev) => {
+                              const found = prev.find((tc) => tc.id === taskId);
+                              if (found && found.status === 'processing') {
+                                resolve({ confirmed: true });
+                              } else {
+                                resolve({ confirmed: false });
+                              }
+                              return prev;
+                            });
+                          }
+                        }, 100);
+
+                        // Safety timeout - if component unmounts
+                        setTimeout(() => {
+                          clearInterval(checkInterval);
+                          resolve({ confirmed: false });
+                        }, 50000);
+                      });
+
+                      if (result.confirmed) {
+                        const response = await executeGoogleService(call, taskId, '');
+                        responses.push({ id: call.id, name: call.name, response });
+                      } else {
+                        responses.push({
+                          id: call.id,
+                          name: call.name,
+                          response: { result: 'User denied this action.' },
+                        });
+                      }
+                    } else {
+                      // Auto-execute reads
+                      const response = await executeGoogleService(call, taskId, '');
+                      responses.push({ id: call.id, name: call.name, response });
+                    }
                   }
                 }
               }
 
-              if (responses.length) sessionPromise.then((session) => session.sendToolResponse({ functionResponses: responses }));
+              if (responses.length) {
+                sessionPromise.then((session) => session.sendToolResponse({ functionResponses: responses }));
+              }
             }
 
+            // Model content handling with streaming text
             if (msg.serverContent) {
               const parts = msg.serverContent.modelTurn?.parts;
 
@@ -1115,17 +1239,21 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                   const current = transcriptRef.current;
                   const nextText = (current?.role === 'model' ? `${current.text} ${text}` : text).trim();
                   transcriptRef.current = { text: nextText, role: 'model' };
-                  setCurrentTranscript({ text: nextText, role: 'model' });
-                  if (transcriptTimeoutRef.current) clearTimeout(transcriptTimeoutRef.current);
-                  transcriptTimeoutRef.current = setTimeout(() => {
-                    setCurrentTranscript(null);
-                    transcriptRef.current = null;
-                  }, 4000);
+
+                  // Update streaming display
+                  setStreamingText(nextText);
+                  setStreamingRole('model');
                 }
               }
 
+              // On turn complete: finalize transcript entry
               if ((msg.serverContent as any).turnComplete && transcriptRef.current?.role === 'model') {
-                saveMessage('model', transcriptRef.current.text);
+                const finalText = transcriptRef.current.text;
+                saveMessage('model', finalText);
+                addTranscriptEntry('model', finalText, true);
+                transcriptRef.current = null;
+                setStreamingText(null);
+                setStreamingRole(null);
               }
             }
           },
@@ -1156,6 +1284,25 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
     const session = sessionRef.current;
     sessionRef.current = null;
+
+    // Clean up pending confirmation before closing session
+    if (pendingConfirmationRef.current) {
+      if (session) {
+        try {
+          session.sendToolResponse({
+            functionResponses: [{
+              id: pendingConfirmationRef.current.callRef.id,
+              name: pendingConfirmationRef.current.callRef.name,
+              response: { result: 'Session ended before action was confirmed.' },
+            }],
+          });
+        } catch {}
+      }
+      updateToolCallEntry(pendingConfirmationRef.current.id, { status: 'denied', completedAt: Date.now() });
+      pendingConfirmationRef.current = null;
+      setPendingConfirmation(null);
+    }
+
     try {
       session?.close();
     } catch {}
@@ -1167,7 +1314,8 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
     setSpeakerPulseLevel(0.18);
     setIsActive(false);
     setConnecting(false);
-    setCurrentTranscript(null);
+    setStreamingText(null);
+    setStreamingRole(null);
 
     setTimeout(() => {
       stoppingRef.current = false;
@@ -1216,6 +1364,35 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
     setSettings((current) => ({ ...current, conversationSeedMode: mode }));
   };
 
+  const handleRequestScope = async (scopeState: OAuthScopeState) => {
+    if (!scopeState.scope) {
+      // Maps doesn't use OAuth
+      const updated = oauthScopes.map((s) => (s.id === scopeState.id ? { ...s, granted: true } : s));
+      setOauthScopes(updated);
+      saveGrantedScopes(user.uid, updated);
+      return;
+    }
+    const granted = await requestAdditionalScope(scopeState.scope);
+    if (granted) {
+      const updated = oauthScopes.map((s) => (s.id === scopeState.id ? { ...s, granted: true } : s));
+      setOauthScopes(updated);
+      saveGrantedScopes(user.uid, updated);
+    }
+  };
+
+  const handleRequestAllScopes = async () => {
+    const missing = getScopesToRequest(oauthScopes);
+    let updated = [...oauthScopes];
+    for (const scope of missing) {
+      const granted = await requestAdditionalScope(scope);
+      if (granted) {
+        updated = updated.map((s) => (s.scope === scope ? { ...s, granted: true } : s));
+        setOauthScopes(updated);
+        saveGrantedScopes(user.uid, updated);
+      }
+    }
+  };
+
   const statusText = connecting ? 'Connecting...' : isActive ? (isAgentSpeaking ? 'Speaking...' : 'Listening...') : 'Standby';
 
   return (
@@ -1245,6 +1422,14 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
               </div>
             </div>
           </div>
+          <button onClick={() => setShowViewport(!showViewport)} className={`relative h-14 w-14 shrink-0 rounded-[1.35rem] border transition-all active:scale-95 flex items-center justify-center ${showViewport ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.15)]' : 'border-white/10 bg-[#070707]/80 text-zinc-500 hover:text-zinc-300 hover:border-white/20'}`}>
+            <PanelRight className="h-6 w-6" />
+            {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 text-[9px] font-bold text-black flex items-center justify-center">
+                {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length}
+              </span>
+            )}
+          </button>
           <button onClick={() => setShowProfile(true)} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[1.35rem] border border-amber-500/25 bg-[#070707] p-[3px] shadow-[0_0_28px_rgba(245,158,11,0.12)] transition-all hover:border-amber-400/60 active:scale-95">
             <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[1.1rem] bg-gradient-to-br from-purple-600 via-violet-700 to-[#321066] text-2xl font-black lowercase text-white">
               {settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Profile" className="h-full w-full object-cover" /> : (user.displayName?.[0] || 'g').toLowerCase()}
@@ -1289,11 +1474,41 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
             </motion.div>
           </div>
 
-          <div className="mt-10 h-24 w-full max-w-2xl px-6 flex flex-col items-center justify-center gap-2">
+          {/* Transcript / Streaming Text Area */}
+          <div className="mt-10 w-full max-w-2xl px-6 flex flex-col items-center justify-center gap-2">
             <AnimatePresence mode="wait">
-              {currentTranscript ? (
-                <motion.div key={currentTranscript.role} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="text-center">
-                  <p className={`text-xl md:text-2xl font-light tracking-tight leading-snug drop-shadow-sm ${currentTranscript.role === 'model' ? 'text-zinc-100 font-serif italic' : 'text-zinc-400'}`}>{currentTranscript.text}</p>
+              {streamingText && streamingRole === 'model' ? (
+                <motion.div
+                  key="streaming-model"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center max-h-32 overflow-y-auto"
+                >
+                  <p className="text-lg md:text-xl font-light tracking-tight leading-relaxed drop-shadow-sm text-zinc-100 font-serif italic">
+                    <StreamingText text={streamingText} isActive={isActive} />
+                  </p>
+                </motion.div>
+              ) : streamingText && streamingRole === 'user' ? (
+                <motion.div
+                  key="streaming-user"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center"
+                >
+                  <p className="text-lg md:text-xl font-light tracking-tight leading-relaxed text-zinc-400">
+                    {streamingText}
+                  </p>
+                </motion.div>
+              ) : transcriptEntries.length > 0 ? (
+                <motion.div
+                  key="last-entry"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center max-h-24 overflow-y-auto"
+                >
+                  <p className={`text-lg md:text-xl font-light tracking-tight leading-relaxed drop-shadow-sm ${transcriptEntries[transcriptEntries.length - 1].role === 'model' ? 'text-zinc-100 font-serif italic' : 'text-zinc-400'}`}>
+                    {transcriptEntries[transcriptEntries.length - 1].text}
+                  </p>
                 </motion.div>
               ) : (
                 <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.7 }} className="text-[10px] uppercase tracking-[0.3em] font-bold text-amber-500/70">
@@ -1301,6 +1516,14 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                 </motion.p>
               )}
             </AnimatePresence>
+            {transcriptEntries.length > 0 && (
+              <button
+                onClick={() => setShowSidebar(true)}
+                className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 hover:text-amber-500/70 transition-colors font-bold mt-1"
+              >
+                View transcript ({transcriptEntries.length})
+              </button>
+            )}
           </div>
 
           <div className="mt-8 w-full max-w-[390px] overflow-visible rounded-[2rem] border border-white/10 bg-black/45 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
@@ -1336,16 +1559,29 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
           {connectionError && <div className="mt-4 max-w-[460px] rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-xs text-red-300">{connectionError}</div>}
           {permissionStatus && visualMode !== 'off' && <div className="mt-3 max-w-[460px] rounded-2xl border border-blue-500/15 bg-blue-500/[0.06] px-4 py-2 text-center text-[10px] uppercase tracking-[0.18em] text-blue-200/80">{permissionStatus}</div>}
         </div>
-
-        <div className="absolute bottom-8 left-8 right-8 pointer-events-none">
-          <div className="max-w-md mx-auto space-y-2">
-            <AnimatePresence>
-              {tasks.map((task) => <motion.div key={task.id} layout initial={{ opacity: 0, x: -50, scale: 0.9 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 50, transition: { duration: 0.2 } }} className={`p-3 bg-[#0A0A0B]/80 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl flex items-center gap-4 border-l-2 ${task.status === 'failed' ? 'border-l-red-500/50' : 'border-l-amber-500/50'}`}>{task.status === 'processing' ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" /> : task.status === 'failed' ? <X className="w-4 h-4 text-red-400" /> : <Check className="w-4 h-4 text-emerald-400" />}<div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-0.5"><span className="text-[9px] uppercase tracking-widest text-amber-500 font-bold">{task.serviceName}</span><span className="text-[8px] font-mono text-zinc-600">{task.status.toUpperCase()}</span></div><p className="text-xs text-zinc-100 truncate">{task.action}</p>{task.result && <p className="text-[10px] text-zinc-400 mt-1 leading-tight">{task.result}</p>}</div></motion.div>)}
-            </AnimatePresence>
-          </div>
-        </div>
       </main>
 
+      {/* Desktop Viewport - Tool Call Timeline */}
+      <DesktopViewport
+        toolCalls={toolCalls}
+        expanded={showViewport}
+        onToggle={() => setShowViewport(!showViewport)}
+        onDismiss={dismissToolCall}
+        onClearDismissed={clearDismissedToolCalls}
+      />
+
+      {/* Tool Confirmation Modal */}
+      <AnimatePresence>
+        {pendingConfirmation && (
+          <ToolConfirmationModal
+            pending={pendingConfirmation}
+            onConfirm={confirmToolCall}
+            onDeny={denyToolCall}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Tool Interaction Modal (legacy) */}
       <AnimatePresence>
         {toolModal && (
           <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+96px)] z-[170] mx-auto max-w-md rounded-3xl border border-white/10 bg-[#070707]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl">
@@ -1360,7 +1596,58 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
         {showSidebar && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSidebar(false)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 left-0 bottom-0 w-80 bg-[#0A0A0B] border-r border-white/10 shadow-2xl z-[101] flex flex-col font-sans"><div className="p-6 border-b border-white/10 flex items-center justify-between"><h2 className="text-sm font-bold text-white tracking-widest uppercase">Eburon Memory</h2><button onClick={() => setShowSidebar(false)} className="p-2 -mr-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{historyMsgs.map((msg, index) => <div key={`${msg.timestamp}-${index}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`p-3 rounded-2xl max-w-[90%] text-xs leading-relaxed ${msg.role === 'user' ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm' : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'}`}>{msg.text}</div></div>)}{historyMsgs.length === 0 && <div className="text-center text-zinc-600 text-[10px] tracking-widest uppercase py-10 font-bold">No Memory Buffers</div>}</div></motion.div>
+            <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 left-0 bottom-0 w-80 bg-[#0A0A0B] border-r border-white/10 shadow-2xl z-[101] flex flex-col font-sans">
+              <div className="p-6 border-b border-white/10 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-bold text-white tracking-widest uppercase">Session Memory</h2>
+                  <p className="text-[9px] text-zinc-600 mt-0.5">{transcriptEntries.length} live entries &middot; {historyMsgs.length} saved</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {transcriptEntries.length > 0 && (
+                    <button onClick={clearTranscript} className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-red-400 transition-colors" title="Clear session transcript">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button onClick={() => setShowSidebar(false)} className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Session transcript entries */}
+                {transcriptEntries.length > 0 && (
+                  <div>
+                    <h3 className="text-[9px] font-bold uppercase tracking-widest text-amber-500/70 mb-2 px-1">Current Session</h3>
+                    <div className="space-y-2">
+                      {transcriptEntries.map((entry) => (
+                        <div key={entry.id} className={`flex flex-col ${entry.role === 'user' ? 'items-end' : 'items-start'}`}>
+                          <div className={`p-2.5 rounded-xl max-w-[90%] text-xs leading-relaxed ${entry.role === 'user' ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm' : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'}`}>
+                            {entry.text}
+                            {!entry.isComplete && <span className="inline-block w-1.5 h-3 bg-amber-500 ml-1 animate-pulse rounded-full align-middle" />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Saved history */}
+                {historyMsgs.length > 0 && (
+                  <div>
+                    <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-600 mb-2 px-1">Saved History</h3>
+                    <div className="space-y-2">
+                      {historyMsgs.map((msg, index) => (
+                        <div key={`${msg.timestamp}-${index}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                          <div className={`p-2.5 rounded-xl max-w-[90%] text-xs leading-relaxed ${msg.role === 'user' ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm' : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'}`}>{msg.text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {transcriptEntries.length === 0 && historyMsgs.length === 0 && (
+                  <div className="text-center text-zinc-600 text-[10px] tracking-widest uppercase py-10 font-bold">No Memory Buffers</div>
+                )}
+              </div>
+            </motion.div>
           </>
         )}
       </AnimatePresence>
@@ -1382,7 +1669,85 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
             <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 p-6 pb-24">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3"><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><ShieldCheck className="mb-3 h-5 w-5 text-amber-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base</div><div className="mt-1 text-sm text-white">Persistent identity</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><UserRound className="mb-3 h-5 w-5 text-emerald-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Agent Layer</div><div className="mt-1 text-sm text-white">{activeAgent.label}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><BrainCircuit className="mb-3 h-5 w-5 text-blue-400" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Memory</div><div className="mt-1 text-sm text-white">RTDB persistent</div></div></div>
               <div className="flex flex-col items-center gap-4"><div className="group relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-2 border-white/10 bg-zinc-900">{settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Avatar" className="h-full w-full object-cover transition-opacity group-hover:opacity-50" /> : <div className="text-4xl font-bold text-zinc-700">{user.displayName?.[0] || 'U'}</div>}<div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"><Camera className="h-8 w-8 text-white drop-shadow-md" /></div><input type="file" accept="image/*" className="absolute inset-0 cursor-pointer opacity-0" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (readerEvent) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = 150; canvas.height = 150; const ctx = canvas.getContext('2d'); if (!ctx) return; ctx.drawImage(img, 0, 0, 150, 150); updateActiveAgentAvatar(canvas.toDataURL('image/jpeg', 0.8)); }; img.src = String(readerEvent.target?.result || ''); }; reader.readAsDataURL(file); }} /></div><div className="text-center"><h3 className="text-xs font-bold uppercase tracking-widest text-zinc-300">Avatar Node</h3><p className="mt-1 text-[10px] text-zinc-600">Saved per active agent</p></div></div>
-              <div className="space-y-6"><div className="space-y-2"><label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><Settings2 className="h-3 w-3" /> Agent Profile</label><select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="maximus">Maximus</option><option value="beatrice">Beatrice</option></select></div><div className="space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Conversation Start Mode</label><select value={settings.conversationSeedMode || 'memory'} onChange={(event) => updateConversationSeedMode(event.target.value as ConversationSeedMode)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-sm text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="memory">Use past conversation / memory</option><option value="news">Use web/news/search topic when backend supports it</option><option value="idea">Start with a useful product idea</option><option value="quiet">Stay quiet until Master E speaks</option></select></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Tool Calling Power</div><div className="mt-4 space-y-3">{(['gmail', 'drive', 'context', 'vision'] as ToolKey[]).map((tool) => <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{tool}</span><input type="checkbox" checked={settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]} onChange={(event) => updateToolToggle(tool, event.target.checked)} className="h-5 w-5 accent-amber-500" /></label>)}</div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => runDemoTool('Gmail', 'Read latest emails')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Gmail</button><button type="button" onClick={() => runDemoTool('Google Drive', 'Search recent files')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Drive</button></div><label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">Auto describe video/screen</span><input type="checkbox" checked={settings.autoDescribeVisual ?? true} onChange={(event) => setSettings((current) => ({ ...current, autoDescribeVisual: event.target.checked }))} className="h-5 w-5 accent-amber-500" /></label><p className="mt-3 text-[10px] uppercase tracking-widest text-zinc-600">{geoPermissionStatus}</p>{lastKnownLocation && <p className="mt-2 text-[10px] uppercase tracking-widest text-blue-300/80">Last location: {lastKnownLocation.latitude.toFixed(4)}, {lastKnownLocation.longitude.toFixed(4)}</p>}<button type="button" onClick={() => requestBrowserLocation().catch((error) => setVisualError(error.message))} className="mt-4 w-full rounded-xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 transition-all hover:bg-blue-500/15">Allow Location Context</button></div><div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base Persona</label><textarea value={settings.persistentBasePrompt} onChange={(event) => setSettings((current) => ({ ...current, persistentBasePrompt: event.target.value }))} className="min-h-[180px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div><div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{activeAgent.label} System Directives</label><textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} className="min-h-[260px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div></div>
+              <div className="space-y-6"><div className="space-y-2"><label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><Settings2 className="h-3 w-3" /> Agent Profile</label><select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="maximus">Maximus</option><option value="beatrice">Beatrice</option></select></div><div className="space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Conversation Start Mode</label><select value={settings.conversationSeedMode || 'memory'} onChange={(event) => updateConversationSeedMode(event.target.value as ConversationSeedMode)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-sm text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="memory">Use past conversation / memory</option><option value="news">Use web/news/search topic when backend supports it</option><option value="idea">Start with a useful product idea</option><option value="quiet">Stay quiet until Master E speaks</option></select></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Tool Calling Power</div><div className="mt-4 space-y-3">{(['gmail', 'drive', 'context', 'vision'] as ToolKey[]).map((tool) => <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{tool}</span><input type="checkbox" checked={settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]} onChange={(event) => updateToolToggle(tool, event.target.checked)} className="h-5 w-5 accent-amber-500" /></label>)}</div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => runDemoTool('Gmail', 'Read latest emails')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Gmail</button><button type="button" onClick={() => runDemoTool('Google Drive', 'Search recent files')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Drive</button></div><label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">Auto describe video/screen</span><input type="checkbox" checked={settings.autoDescribeVisual ?? true} onChange={(event) => setSettings((current) => ({ ...current, autoDescribeVisual: event.target.checked }))} className="h-5 w-5 accent-amber-500" /></label><p className="mt-3 text-[10px] uppercase tracking-widest text-zinc-600">{geoPermissionStatus}</p>{lastKnownLocation && <p className="mt-2 text-[10px] uppercase tracking-widest text-blue-300/80">Last location: {lastKnownLocation.latitude.toFixed(4)}, {lastKnownLocation.longitude.toFixed(4)}</p>}<button type="button" onClick={() => requestBrowserLocation().catch((error) => setVisualError(error.message))} className="mt-4 w-full rounded-xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 transition-all hover:bg-blue-500/15">Allow Location Context</button></div>
+
+              {/* OAuth Permission Dashboard */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Google OAuth Permissions</div>
+                  <span className="text-[9px] font-mono text-zinc-600">{getGrantedCount(oauthScopes)}/{oauthScopes.length} granted</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-white/5 mb-4 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500"
+                    style={{ width: `${(getGrantedCount(oauthScopes) / Math.max(oauthScopes.length, 1)) * 100}%` }}
+                  />
+                </div>
+                <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                  {Object.entries(
+                    oauthScopes.reduce<Record<string, OAuthScopeState[]>>((acc, s) => {
+                      if (!acc[s.category]) acc[s.category] = [];
+                      acc[s.category].push(s);
+                      return acc;
+                    }, {}),
+                  ).map(([category, scopes]) => (
+                    <div key={category} className="mb-3">
+                      <div className="text-[8px] font-bold uppercase tracking-[0.25em] text-zinc-600 mb-1.5 px-1">
+                        {category}
+                      </div>
+                      {scopes.map((scope) => (
+                        <div
+                          key={scope.id}
+                          className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-black/20 px-3 py-2.5"
+                        >
+                          <div
+                            className={`w-2 h-2 rounded-full shrink-0 ${
+                              scope.granted ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-zinc-700'
+                            }`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-medium text-zinc-300">{scope.label}</span>
+                              <span
+                                className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                                  scope.risk === 'write'
+                                    ? 'bg-yellow-500/10 text-yellow-400'
+                                    : scope.risk === 'admin'
+                                      ? 'bg-red-500/10 text-red-400'
+                                      : 'bg-emerald-500/10 text-emerald-400'
+                                }`}
+                              >
+                                {scope.risk}
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-zinc-600 mt-0.5 truncate">{scope.requiredFor}</p>
+                          </div>
+                          {scope.granted ? (
+                            <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider">Granted</span>
+                          ) : (
+                            <button
+                              onClick={() => handleRequestScope(scope)}
+                              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all"
+                            >
+                              Authorize
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                {getScopesToRequest(oauthScopes).length > 0 && (
+                  <button
+                    onClick={handleRequestAllScopes}
+                    className="mt-4 w-full rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300 transition-all hover:bg-amber-500/15"
+                  >
+                    Request All ({getScopesToRequest(oauthScopes).length} remaining)
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base Persona</label><textarea value={settings.persistentBasePrompt} onChange={(event) => setSettings((current) => ({ ...current, persistentBasePrompt: event.target.value }))} className="min-h-[180px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div><div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{activeAgent.label} System Directives</label><textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} className="min-h-[260px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div></div>
               <div className="mt-auto border-t border-white/10 pt-6"><button onClick={onLogout} className="w-full rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:border-red-500/45 hover:bg-red-500/15 active:scale-[0.99]"><LogOut className="mr-2 inline h-4 w-4" /> Logout</button></div>
             </div>
           </motion.div>
