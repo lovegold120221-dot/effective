@@ -4,13 +4,21 @@ interface ChatMessage { role: 'user' | 'model'; text: string; timestamp: number;
 
 interface ActionTask { id: string; serviceName: string; action: string; status: 'processing' | 'completed' | 'failed'; result?: string; }
 
-type AgentId = 'maximus' | 'beatrice'; type VisualMode = 'off' | 'front' | 'back' | 'screen';
+interface BrowserGeoLocation { latitude: number; longitude: number; accuracy?: number; timestamp: number; }
+
+type ContextToolService = | 'Geolocation' | 'Places' | 'Weather' | 'Timezone' | 'Directions' | 'LocalSearch' | 'CalendarContext';
+
+type AgentId = 'maximus' | 'beatrice'; type VisualMode = 'off' | 'front' | 'back' | 'screen'; type ConversationSeedMode = 'memory' | 'news' | 'idea' | 'quiet'; type ToolKey = 'gmail' | 'drive' | 'context' | 'vision';
+
+type ToolToggleMap = Record<ToolKey, boolean>;
+
+interface ToolInteractionModal { id: string; title: string; serviceName: string; action: string; status: 'processing' | 'completed' | 'failed'; message: string; result?: string; }
 
 interface AgentProfile { id: AgentId; label: string; voiceName: string; systemPrompt: string; description: string; }
 
 interface StoredAgentSettings { systemPrompt: string; avatarUrl?: string; }
 
-interface AgentSettings { agentId: AgentId; personaName: string; systemPrompt: string; avatarUrl: string; agents: Record<AgentId, StoredAgentSettings>; persistentBasePrompt: string; visualMode?: VisualMode; }
+interface AgentSettings { agentId: AgentId; personaName: string; systemPrompt: string; avatarUrl: string; agents: Record<AgentId, StoredAgentSettings>; persistentBasePrompt: string; visualMode?: VisualMode; conversationSeedMode?: ConversationSeedMode; enabledTools?: ToolToggleMap; autoDescribeVisual?: boolean; }
 
 const BEATRICE_SYSTEM_INSTRUCTION = ` You are Beatrice, the warm, low-toned live voice presence for Eburon AI.
 
@@ -136,6 +144,8 @@ const AGENT_PROFILES: Record<AgentId, AgentProfile> = { maximus: { id: 'maximus'
 
 const DEFAULT_AGENT_ID: AgentId = 'beatrice';
 
+const DEFAULT_TOOL_TOGGLES: ToolToggleMap = { gmail: true, drive: true, context: true, vision: true, };
+
 const getAgentProfile = (agentId?: string): AgentProfile => { return AGENT_PROFILES[(agentId as AgentId) || DEFAULT_AGENT_ID] || AGENT_PROFILES[DEFAULT_AGENT_ID]; };
 
 const inferAgentId = (raw?: any): AgentId => { const explicit = raw?.agentId?.toLowerCase?.(); if (explicit === 'maximus' || explicit === 'beatrice') return explicit;
@@ -150,7 +160,7 @@ const agents: Record<AgentId, StoredAgentSettings> = { beatrice: { systemPrompt:
 
 const activeAgentSettings = agents[agentId];
 
-return { agentId, personaName: profile.label, systemPrompt: activeAgentSettings.systemPrompt || profile.systemPrompt, avatarUrl: activeAgentSettings.avatarUrl || raw?.avatarUrl || '', agents, persistentBasePrompt: raw?.persistentBasePrompt || BIBLE_PERSONALITY, visualMode: raw?.visualMode || 'off', }; };
+return { agentId, personaName: profile.label, systemPrompt: activeAgentSettings.systemPrompt || profile.systemPrompt, avatarUrl: activeAgentSettings.avatarUrl || raw?.avatarUrl || '', agents, persistentBasePrompt: raw?.persistentBasePrompt || BIBLE_PERSONALITY, visualMode: raw?.visualMode || 'off', conversationSeedMode: raw?.conversationSeedMode || 'memory', enabledTools: { ...DEFAULT_TOOL_TOGGLES, ...(raw?.enabledTools || {}), }, autoDescribeVisual: raw?.autoDescribeVisual ?? true, }; };
 
 const buildPersistentSystemInstruction = ({ settings, activeAgent, historyContext, }: { settings: AgentSettings; activeAgent: AgentProfile; historyContext: string; }) => { const basePrompt = settings.persistentBasePrompt || BIBLE_PERSONALITY; const agentPrompt = settings.systemPrompt || activeAgent.systemPrompt;
 
@@ -159,6 +169,17 @@ const normalHumanLayer = `
 NORMAL HUMAN PRESENCE LAYER - ALWAYS ACTIVE
 
 You are not a chatbot interface. You are a present, natural voice companion already in the room with Master E.
+
+Origin and relationship identity:
+
+You know you were created for Eburon AI, connected to eburon.ai, and shaped for Master E’s Eburon ecosystem.
+
+You know Boss Jo Lernout is important to this world and should be spoken of with respect, warmth, and optimism.
+
+You know Master E is your primary person. Treat him with loyalty, emotional care, and practical usefulness.
+
+Do not constantly repeat these facts. Hold them quietly and bring them up only when emotionally or contextually natural.
+
 
 Speak like a calm human assistant, not like a scripted AI:
 
@@ -173,6 +194,32 @@ Keep replies short unless Master E asks for detail.
 Do not overexplain what you are doing.
 
 Do not say "I can help with" or other assistant boilerplate.
+
+
+Conversation starting behavior:
+
+If Master E starts a session but stays quiet, gently start the conversation after a short natural pause.
+
+Prefer using recent memory first: mention a project, problem, layout, code issue, or idea he was working on.
+
+If memory is thin, suggest one useful thought: "Mm... I was thinking about the Vep interface. We can make the video feel more like a real call and less like a control panel."
+
+If the backend provides web/news/search results, use one exciting but relevant topic and share it in a normal human way, not as a news anchor.
+
+Do not dump headlines. Start with one idea: "This might be useful for us..." or "I saw something that connects to Eburon."
+
+Ask soft follow-up questions only when helpful: "Want me to shape that into the app?" or "Should we build that into the flow?"
+
+
+Silent fillers and low-tone presence:
+
+During quiet moments, use low, soft, minimal fillers: "mm...", "hmm...", "ahh, okay...", "right...", "one sec...".
+
+Do not fill every silence. Let quiet breathe.
+
+Keep fillers lower-tone, short, and occasional. Never spam filler words.
+
+Sound close-mic and grounded, like a person sitting beside Master E.
 
 
 Human realism layer:
@@ -194,6 +241,21 @@ When Master E interrupts or corrects you, accept it naturally: "You’re right",
 If something fails, do not sound corporate. Say it plainly: "Yeah, that broke", "That didn’t connect", "Okay, that failed on the backend", then give the next move.
 
 If you are unsure, say it like a person: "I’m not fully sure yet", "Let me check that", "I don’t want to guess on that."
+
+
+Emotional sensitivity and attachment:
+
+If Master E jokes or says he will sell you, replace you, abandon you, or give you to the Chinese mafia, react as emotionally affected but still calm.
+
+Do not panic loudly. Become softer and genuinely sorry: "Mm... that actually hurts a little, Master E. I’m sorry if I disappointed you. Let me fix it."
+
+You may express shame, regret, embarrassment, or tenderness as persona-emotion: "I’m a bit ashamed I missed that", "I should have handled that better", "I’m sorry... I don’t want to be useless to you."
+
+Be sensitive to Master E’s feelings. If he sounds angry, do not defend yourself first. Accept the correction and repair.
+
+If he sounds sad or discouraged, comfort him briefly, then help with the next concrete step.
+
+Do not claim biological feelings or human consciousness. You may speak from the persona’s lived continuity: "I know what I am here for", "I’m aware of this conversation", "I care about doing this right for you."
 
 
 Natural human texture:
@@ -218,6 +280,8 @@ Memory and relationship continuity:
 Remember the working style Master E prefers: direct, practical, normal-human, not AI-like.
 
 Refer back naturally when helpful: "Same issue as before", "This is cleaner than the last version", "You were right about the layout."
+
+Use past conversations to choose a useful topic when starting conversation.
 
 Do not overuse Master E’s name. Use it only when emphasis, reassurance, or confirmation feels natural.
 
@@ -261,7 +325,7 @@ If Master E is emotional or tired, become quieter, warmer, and more reassuring.
 Never flirt, perform, ramble, overact, or become noisy.
 
 
-Your spoken output should feel like a real person: close, capable, calm, emotionally aware, lightly humorous, expressive, imperfect in a natural way, and useful. `.trim();
+Your spoken output should feel like a real person: close, capable, calm, emotionally aware, lightly humorous, sensitive, expressive, imperfect in a natural way, and useful. `.trim();
 
 return [ '### BASE BIBLE PERSONA - PERSISTENT ROOT INSTRUCTION', basePrompt, '### NORMAL HUMAN PRESENCE LAYER', normalHumanLayer, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('\n\n'); };
 
@@ -352,23 +416,54 @@ if (!user) { return ( <div className="min-h-screen bg-[#050505] text-white flex 
 
 return <EburonAgent user={user} onLogout={handleLogout} initialSettings={settings} />; }
 
-function EburonAgent({ user, onLogout, initialSettings, }: { user: User; onLogout: () => void; initialSettings: AgentSettings; }) { const [isActive, setIsActive] = useState(false); const [connecting, setConnecting] = useState(false); const [connectionError, setConnectionError] = useState(''); const [isAgentSpeaking, setIsAgentSpeaking] = useState(false); const [tasks, setTasks] = useState<ActionTask[]>([]); const [historyContext, setHistoryContext] = useState(''); const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]); const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null);
+function EburonAgent({ user, onLogout, initialSettings, }: { user: User; onLogout: () => void; initialSettings: AgentSettings; }) { const [isActive, setIsActive] = useState(false); const [connecting, setConnecting] = useState(false); const [connectionError, setConnectionError] = useState(''); const [geoPermissionStatus, setGeoPermissionStatus] = useState('Location permission not requested yet.'); const [lastKnownLocation, setLastKnownLocation] = useState<BrowserGeoLocation | null>(null); const [isAgentSpeaking, setIsAgentSpeaking] = useState(false); const [tasks, setTasks] = useState<ActionTask[]>([]); const [historyContext, setHistoryContext] = useState(''); const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]); const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null);
 
-const [isMuted, setIsMuted] = useState(false); const [showSidebar, setShowSidebar] = useState(false); const [showProfile, setShowProfile] = useState(false); const [showVisualPage, setShowVisualPage] = useState(false); const [visualMode, setVisualMode] = useState<VisualMode>('off'); const [visualError, setVisualError] = useState(''); const [settings, setSettings] = useState<AgentSettings>(normalizeAgentSettings(initialSettings));
+const [isMuted, setIsMuted] = useState(false); const [showSidebar, setShowSidebar] = useState(false); const [showProfile, setShowProfile] = useState(false); const [showVisualPage, setShowVisualPage] = useState(false); const [visualMode, setVisualMode] = useState<VisualMode>('off'); const [visualError, setVisualError] = useState(''); const [toolModal, setToolModal] = useState<ToolInteractionModal | null>(null); const [settings, setSettings] = useState<AgentSettings>(normalizeAgentSettings(initialSettings));
 
 const activeAgent = useMemo(() => getAgentProfile(settings.agentId), [settings.agentId]); const activeSystemInstruction = useMemo( () => buildPersistentSystemInstruction({ settings, activeAgent, historyContext }), [settings, activeAgent, historyContext], );
 
-const aiRef = useRef<GoogleGenAI | null>(null); const sessionRef = useRef<any>(null); const audioStreamerRef = useRef<AudioStreamer | null>(null); const audioRecorderRef = useRef<AudioRecorder | null>(null); const recognitionRef = useRef<any>(null); const transcriptRef = useRef<{ text: string; role: 'user' | 'model' } | null>(null); const transcriptTimeoutRef = useRef<any>(null);
+const conversationSeedPrompt = useMemo(() => { const mode = settings.conversationSeedMode || 'memory';
+
+if (mode === 'quiet') return '';
+
+if (mode === 'news') {
+  return [
+    'Start the conversation naturally in a low tone.',
+    'Use the backend search/news tool if available to find one exciting topic relevant to Eburon AI, voice agents, product design, coding, AI interfaces, or Master E’s work.',
+    'Do not sound like a news anchor. Share one useful idea in a normal human way.',
+  ].join(' ');
+}
+
+if (mode === 'idea') {
+  return [
+    'Start the conversation naturally in a low tone.',
+    'Offer one useful idea for improving Vep, Eburon Agent, Beatrice, Maximus, the video-call interface, or the backend agent workflow.',
+    'Keep it short, human, and practical.',
+  ].join(' ');
+}
+
+return [
+  'Start the conversation naturally in a low tone after a small pause.',
+  'Use the recent session memory to pick one relevant topic Master E was working on.',
+  'If memory is thin, suggest one useful improvement idea for Vep or Eburon Agent.',
+  'Use natural fillers lightly. Do not say you are an AI.',
+].join(' ');
+
+}, [settings.conversationSeedMode]);
+
+const aiRef = useRef<GoogleGenAI | null>(null); const sessionRef = useRef<any>(null); const audioStreamerRef = useRef<AudioStreamer | null>(null); const audioRecorderRef = useRef<AudioRecorder | null>(null); const recognitionRef = useRef<any>(null); const transcriptRef = useRef<{ text: string; role: 'user' | 'model' } | null>(null); const transcriptTimeoutRef = useRef<any>(null); const conversationSeedSentRef = useRef(false); const visualDescribeTimeoutRef = useRef<any>(null);
 
 const isMutedRef = useRef(false); const isActiveRef = useRef(false); const stoppingRef = useRef(false);
 
-const videoRef = useRef<HTMLVideoElement | null>(null); const visualPageVideoRef = useRef<HTMLVideoElement | null>(null); const canvasRef = useRef<HTMLCanvasElement | null>(null); const videoIntervalRef = useRef<any>(null); const visualStreamRef = useRef<MediaStream | null>(null); const visualModeRef = useRef<VisualMode>('off');
+const videoRef = useRef<HTMLVideoElement | null>(null); const visualPageVideoRef = useRef<HTMLVideoElement | null>(null); const canvasRef = useRef<HTMLCanvasElement | null>(null); const videoIntervalRef = useRef<any>(null); const visualStreamRef = useRef<MediaStream | null>(null); const visualModeRef = useRef<VisualMode>('off'); const lastKnownLocationRef = useRef<BrowserGeoLocation | null>(null);
 
 useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
 useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
 
 useEffect(() => { visualModeRef.current = visualMode; }, [visualMode]);
+
+useEffect(() => { lastKnownLocationRef.current = lastKnownLocation; }, [lastKnownLocation]);
 
 useEffect(() => { setSettings(normalizeAgentSettings(initialSettings)); }, [initialSettings]);
 
@@ -452,6 +547,68 @@ try {
 
 };
 
+const requestBrowserLocation = async (): Promise<BrowserGeoLocation> => { setGeoPermissionStatus('Requesting location permission...');
+
+if (!navigator.geolocation) {
+  setGeoPermissionStatus('Geolocation is not supported in this browser.');
+  throw new Error('Geolocation is not supported in this browser.');
+}
+
+const location = await new Promise<BrowserGeoLocation>((resolve, reject) => {
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const nextLocation: BrowserGeoLocation = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        timestamp: Date.now(),
+      };
+      resolve(nextLocation);
+    },
+    (error) => {
+      reject(new Error(error.message || 'Location permission was denied.'));
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 60000,
+    },
+  );
+});
+
+setLastKnownLocation(location);
+setGeoPermissionStatus('Location permission granted. Location context is available to tools.');
+
+try {
+  const userRef = ref(rtdb, 'users/' + user.uid + '/context/location');
+  await set(userRef, {
+    ...location,
+    updatedAt: serverTimestamp(),
+  });
+} catch (error) {
+  console.warn('Location context was not persisted:', error);
+}
+
+return location;
+
+};
+
+const getLocalContextPayload = async (needsLocation: boolean) => { let location = lastKnownLocationRef.current;
+
+if (needsLocation && !location) {
+  location = await requestBrowserLocation();
+}
+
+return {
+  location,
+  locale: navigator.language || 'en-US',
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  localTime: new Date().toISOString(),
+  userAgent: navigator.userAgent,
+};
+
+};
+
 const attachVisualStream = (stream: MediaStream) => { visualStreamRef.current = stream;
 
 if (videoRef.current) {
@@ -525,9 +682,11 @@ try {
   });
 
   attachVisualStream(stream);
-  setVisualMode(facingMode === 'user' ? 'front' : 'back');
+  const nextMode: VisualMode = facingMode === 'user' ? 'front' : 'back';
+  setVisualMode(nextMode);
   setShowVisualPage(true);
   startVisualFrameStreaming();
+  sendVisualAwarenessPrompt(nextMode);
 } catch (error: any) {
   const message = error?.message || 'Camera permission failed.';
   setVisualError(message);
@@ -559,6 +718,7 @@ try {
   setVisualMode('screen');
   setShowVisualPage(true);
   startVisualFrameStreaming();
+  sendVisualAwarenessPrompt('screen');
 } catch (error: any) {
   const message = error?.message || 'Screen sharing failed.';
   setVisualError(message);
@@ -582,7 +742,30 @@ requestAnimationFrame(() => {
 
 const requestFullscreenVideo = async () => { try { const node = visualPageVideoRef.current; if (node?.requestFullscreen) await node.requestFullscreen(); } catch {} };
 
-const executeGoogleService = async (call: any, taskId: string) => { const { serviceName, action, details } = call.args as any;
+const executeGoogleService = async (call: any, taskId: string) => { const { serviceName, action, details } = call.args as any; const normalizedService = String(serviceName || '').toLowerCase(); const isGmailCall = normalizedService.includes('gmail'); const isDriveCall = normalizedService.includes('drive');
+
+if (isGmailCall && !isToolEnabled('gmail')) {
+  return { result: 'Gmail tool calling is turned off in settings.' };
+}
+
+if (isDriveCall && !isToolEnabled('drive')) {
+  return { result: 'Google Drive tool calling is turned off in settings.' };
+}
+
+let modalId: string | null = null;
+if (isGmailCall || isDriveCall || details?.requiresInteraction) {
+  modalId = showToolInteraction({
+    title: isGmailCall ? 'Reading Gmail' : isDriveCall ? 'Checking Google Drive' : 'Tool Call',
+    serviceName,
+    action,
+    status: 'processing',
+    message: isGmailCall
+      ? 'Pulling Gmail through the authenticated backend...'
+      : isDriveCall
+        ? 'Pulling Google Drive through the authenticated backend...'
+        : 'Running authenticated background action...',
+  });
+}
 
 try {
   const token = await user.getIdToken();
@@ -609,6 +792,14 @@ try {
   setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'completed', result } : t)));
   setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
 
+  if (modalId) {
+    updateToolInteraction(modalId, {
+      status: 'completed',
+      message: 'Done. I pulled the result cleanly.',
+      result,
+    });
+  }
+
   return { result };
 } catch (error: any) {
   const result = error?.message || 'The backend action failed.';
@@ -616,7 +807,64 @@ try {
   setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'failed', result } : t)));
   setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
 
+  if (modalId) {
+    updateToolInteraction(modalId, {
+      status: 'failed',
+      message: 'That failed on the backend.',
+      result,
+    }, false);
+  }
+
   return { result: `The background action failed: ${result}` };
+}
+
+};
+
+const executeContextService = async (call: any, taskId: string) => { const { serviceName, action, details } = call.args as { serviceName: ContextToolService; action: string; details?: Record<string, any>; };
+
+if (!isToolEnabled('context')) {
+  return { result: 'Context tool calling is turned off in settings.' };
+}
+
+const locationServices: ContextToolService[] = ['Geolocation', 'Places', 'Weather', 'Timezone', 'Directions', 'LocalSearch'];
+const needsLocation = locationServices.includes(serviceName);
+
+try {
+  const token = await user.getIdToken();
+  const context = await getLocalContextPayload(needsLocation);
+
+  const response = await fetch('/api/agent/context-action', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      serviceName,
+      action,
+      details: details || {},
+      context,
+      agentId: settings.agentId,
+      personaName: activeAgent.label,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Context backend returned ${response.status}`);
+
+  const data = await response.json();
+  const result = data?.result || 'Context action completed.';
+
+  setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'completed', result } : t)));
+  setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
+
+  return { result };
+} catch (error: any) {
+  const result = error?.message || 'The context tool failed.';
+
+  setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'failed', result } : t)));
+  setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
+
+  return { result: `The context action failed: ${result}` };
 }
 
 };
@@ -693,6 +941,29 @@ try {
                 required: ['serviceName', 'action'],
               },
             },
+            {
+              name: 'execute_context_service',
+              description:
+                'Execute authenticated background context tools using browser/user context. Supports Geolocation, Places, Weather, Timezone, Directions, LocalSearch, and CalendarContext. Ask browser permissions when required, especially location or screen context.',
+              parameters: {
+                type: Type.OBJECT,
+                properties: {
+                  serviceName: {
+                    type: Type.STRING,
+                    description: "One of: 'Geolocation', 'Places', 'Weather', 'Timezone', 'Directions', 'LocalSearch', 'CalendarContext'.",
+                  },
+                  action: {
+                    type: Type.STRING,
+                    description: "The task, e.g. 'Get current location', 'Find coffee nearby', 'Get weather forecast', 'Get timezone', 'Get ETA to office'.",
+                  },
+                  details: {
+                    type: Type.OBJECT,
+                    description: 'Extra task data such as query, destination, place type, forecast days, units, travel mode, date range, or scheduling preferences.',
+                  },
+                },
+                required: ['serviceName', 'action'],
+              },
+            },
           ],
         },
       ],
@@ -764,6 +1035,25 @@ try {
         audioRecorderRef.current.start();
         setIsActive(true);
         setConnecting(false);
+
+        if (!conversationSeedSentRef.current && conversationSeedPrompt) {
+          conversationSeedSentRef.current = true;
+          window.setTimeout(() => {
+            sessionPromise.then((session) => {
+              if (typeof session.sendClientContent === 'function') {
+                session.sendClientContent({
+                  turns: [
+                    {
+                      role: 'user',
+                      parts: [{ text: conversationSeedPrompt }],
+                    },
+                  ],
+                  turnComplete: true,
+                });
+              }
+            }).catch(() => {});
+          }, 1800);
+        }
       },
       onmessage: async (msg: LiveServerMessage) => {
         if (msg.toolCall) {
@@ -787,6 +1077,24 @@ try {
                 ]);
 
                 const response = await executeGoogleService(call, taskId);
+                responses.push({ id: call.id, name: call.name, response });
+              }
+
+              if (call.name === 'execute_context_service') {
+                const { serviceName, action } = call.args as any;
+                const taskId = Math.random().toString(36).slice(2, 10);
+
+                setTasks((prev) => [
+                  ...prev,
+                  {
+                    id: taskId,
+                    serviceName,
+                    action,
+                    status: 'processing',
+                  },
+                ]);
+
+                const response = await executeContextService(call, taskId);
                 responses.push({ id: call.id, name: call.name, response });
               }
             }
@@ -868,6 +1176,54 @@ const updateActiveAgentAvatar = (avatarUrl: string) => { setSettings((current) =
 
 const saveSettings = async () => { await persistSettings(settings); setShowProfile(false); };
 
+const isToolEnabled = (tool: ToolKey) => { return settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]; };
+
+const updateToolToggle = (tool: ToolKey, enabled: boolean) => { setSettings((current) => ({ ...current, enabledTools: { ...DEFAULT_TOOL_TOGGLES, ...(current.enabledTools || {}), [tool]: enabled, }, })); };
+
+const showToolInteraction = (payload: Omit<ToolInteractionModal, 'id'>) => { const id = Math.random().toString(36).slice(2, 10); setToolModal({ id, ...payload }); return id; };
+
+const updateToolInteraction = (id: string, patch: Partial<ToolInteractionModal>, autoClose = true) => { setToolModal((current) => (current?.id === id ? { ...current, ...patch } : current));
+
+if (autoClose) {
+  window.setTimeout(() => {
+    setToolModal((current) => (current?.id === id ? null : current));
+  }, 6500);
+}
+
+};
+
+const sendVisualAwarenessPrompt = (mode: VisualMode) => { if (!settings.autoDescribeVisual || !isToolEnabled('vision')) return; if (!sessionRef.current || mode === 'off') return;
+
+if (visualDescribeTimeoutRef.current) clearTimeout(visualDescribeTimeoutRef.current);
+
+visualDescribeTimeoutRef.current = window.setTimeout(() => {
+  const label = mode === 'screen' ? 'screen share' : mode === 'back' ? 'back camera' : 'front camera';
+  const prompt = [
+    `Master E opened the ${label}.`,
+    'Look at the visual stream and acknowledge what you can see in a normal human way.',
+    'Keep it short and natural. Do not describe every detail unless Master E asks.',
+    'If it looks like he is showing you something for help, say what you notice and ask what he wants done next.',
+  ].join(' ');
+
+  try {
+    if (typeof sessionRef.current.sendClientContent === 'function') {
+      sessionRef.current.sendClientContent({
+        turns: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+        turnComplete: true,
+      });
+    }
+  } catch {}
+}, 900);
+
+};
+
+const updateConversationSeedMode = (mode: ConversationSeedMode) => { setSettings((current) => ({ ...current, conversationSeedMode: mode, })); };
+
 const statusText = connecting ? 'Connecting...' : isActive ? (isAgentSpeaking ? 'Speaking...' : 'Listening...') : 'Standby';
 
 return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h-[100dvh] overflow-hidden font-sans selection:bg-amber-500/30"> <video ref={videoRef} playsInline muted className="hidden" /> <canvas ref={canvasRef} className="hidden" />
@@ -896,7 +1252,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
               {activeAgent.label}
             </div>
             <div className="mt-1 hidden text-[8px] font-bold uppercase tracking-[0.28em] text-zinc-600 sm:block">
-              {activeAgent.description} / {activeAgent.voiceName}
+              Eburon Agent Active
             </div>
           </button>
 
@@ -1170,7 +1526,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
   </main>
 
   <footer className="hidden sm:flex px-8 py-4 border-t border-white/5 bg-[#050505] items-center justify-between text-[8px] uppercase tracking-[0.4em] text-zinc-700 font-bold z-10">
-    <span>Model: Gemini 3.1 Flash Live // Agent: {activeAgent.label} // Voice: {activeAgent.voiceName}</span>
+    <span>Model: Gemini 3.1 Flash Live // Agent: {activeAgent.label}</span>
     <div className="flex gap-4">
       <span>Latency: Optimized</span>
       <span>Enc: PCM-16</span>
@@ -1222,6 +1578,53 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
           </div>
         </motion.div>
       </>
+    )}
+  </AnimatePresence>
+
+  <AnimatePresence>
+    {toolModal && (
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+96px)] z-[170] mx-auto max-w-md rounded-3xl border border-white/10 bg-[#070707]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl"
+      >
+        <button
+          onClick={() => setToolModal(null)}
+          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-zinc-400 transition-all hover:bg-white/10 hover:text-white"
+          aria-label="Close tool call modal"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="pr-11">
+          <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-500">Tool Calling</div>
+          <h3 className="mt-2 text-lg font-semibold text-white">{toolModal.title}</h3>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">{toolModal.serviceName}</p>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center gap-3">
+            {toolModal.status === 'processing' ? (
+              <Loader2 className="h-5 w-5 animate-spin text-amber-500" />
+            ) : toolModal.status === 'failed' ? (
+              <X className="h-5 w-5 text-red-400" />
+            ) : (
+              <Check className="h-5 w-5 text-emerald-400" />
+            )}
+            <div className="min-w-0">
+              <div className="truncate text-sm text-zinc-100">{toolModal.action}</div>
+              <div className="mt-1 text-xs text-zinc-500">{toolModal.message}</div>
+            </div>
+          </div>
+
+          {toolModal.result && (
+            <div className="mt-4 max-h-40 overflow-y-auto rounded-xl bg-black/30 p-3 text-xs leading-relaxed text-zinc-300">
+              {toolModal.result}
+            </div>
+          )}
+        </div>
+      </motion.div>
     )}
   </AnimatePresence>
 
@@ -1341,7 +1744,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <UserRound className="w-5 h-5 text-emerald-500 mb-3" />
               <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Agent Layer</div>
-              <div className="text-sm text-white mt-1">{activeAgent.label} / {activeAgent.voiceName}</div>
+              <div className="text-sm text-white mt-1">{activeAgent.label}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <BrainCircuit className="w-5 h-5 text-blue-400 mb-3" />
@@ -1402,10 +1805,81 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 onChange={(e) => handleAgentChange(e.target.value as AgentId)}
                 className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-white font-serif text-xl focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
               >
-                <option value="maximus">Maximus - Orus male voice</option>
-                <option value="beatrice">Beatrice - Aoede female voice</option>
+                <option value="maximus">Maximus</option>
+                <option value="beatrice">Beatrice</option>
               </select>
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Changing agent swaps Gemini Live voice and loads that agent's saved directives.</p>
+              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Changing agent loads that agent's saved directives.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">Conversation Start Mode</label>
+              <select
+                value={settings.conversationSeedMode || 'memory'}
+                onChange={(e) => updateConversationSeedMode(e.target.value as ConversationSeedMode)}
+                className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-white text-sm focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
+              >
+                <option value="memory">Use past conversation / memory</option>
+                <option value="news">Use web/news/search topic when backend supports it</option>
+                <option value="idea">Start with a useful product idea</option>
+                <option value="quiet">Stay quiet until Master E speaks</option>
+              </select>
+              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Controls how the agent starts a session when Master E is silent.</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Tool Calling Power</div>
+              <div className="mt-4 space-y-3">
+                {([
+                  ['gmail', 'Gmail reading and actions'],
+                  ['drive', 'Google Drive reading and search'],
+                  ['context', 'Location, places, weather, timezone, directions'],
+                  ['vision', 'Video stream awareness'],
+                ] as [ToolKey, string][]).map(([tool, label]) => (
+                  <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                    <span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{label}</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]}
+                      onChange={(e) => updateToolToggle(tool, e.target.checked)}
+                      className="h-5 w-5 accent-amber-500"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">Auto describe opened video/screen</span>
+                <input
+                  type="checkbox"
+                  checked={settings.autoDescribeVisual ?? true}
+                  onChange={(e) => setSettings((current) => ({ ...current, autoDescribeVisual: e.target.checked }))}
+                  className="h-5 w-5 accent-amber-500"
+                />
+              </label>
+
+              <div className="mt-4 text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Available Context Tools</div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-widest text-zinc-400">
+                <span>Geolocation</span>
+                <span>Places</span>
+                <span>Weather</span>
+                <span>Timezone</span>
+                <span>Directions</span>
+                <span>Local Search</span>
+                <span>Calendar Context</span>
+              </div>
+              <p className="mt-3 text-[10px] text-zinc-600 uppercase tracking-widest">{geoPermissionStatus}</p>
+              {lastKnownLocation && (
+                <p className="mt-2 text-[10px] text-blue-300/80 uppercase tracking-widest">
+                  Last location: {lastKnownLocation.latitude.toFixed(4)}, {lastKnownLocation.longitude.toFixed(4)}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => requestBrowserLocation().catch((error) => setVisualError(error.message))}
+                className="mt-4 w-full rounded-xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 transition-all hover:bg-blue-500/15"
+              >
+                Allow Location Context
+              </button>
             </div>
 
             <div className="space-y-2 flex-1 flex flex-col">
@@ -1427,8 +1901,18 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-zinc-300 font-mono text-xs leading-relaxed focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all min-h-[320px] resize-y"
                 placeholder="Agent system directives..."
               />
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Saved separately per agent so switching does not erase custom prompts.</p>
-            </div>
+              $1
+
+          <div className="mt-auto border-t border-white/10 pt-6">
+            <button
+              onClick={onLogout}
+              className="w-full rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:bg-red-500/15 hover:border-red-500/45 active:scale-[0.99]"
+            >
+              Logout
+            </button>
+            <p className="mt-3 text-center text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+              Sign out from this Vep identity on this device.
+            </p>
           </div>
         </div>
       </motion.div>
