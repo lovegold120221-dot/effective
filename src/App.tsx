@@ -258,7 +258,7 @@ if (!user) { return ( <div className="min-h-screen bg-[#050505] text-white flex 
 
 return <EburonAgent user={user} onLogout={handleLogout} initialSettings={settings} />; }
 
-function EburonAgent({ user, onLogout, initialSettings, }: { user: User; onLogout: () => void; initialSettings: AgentSettings; }) { const [isActive, setIsActive] = useState(false); const [connecting, setConnecting] = useState(false); const [isAgentSpeaking, setIsAgentSpeaking] = useState(false); const [tasks, setTasks] = useState<ActionTask[]>([]); const [historyContext, setHistoryContext] = useState(''); const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]); const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null);
+function EburonAgent({ user, onLogout, initialSettings, }: { user: User; onLogout: () => void; initialSettings: AgentSettings; }) { const [isActive, setIsActive] = useState(false); const [connecting, setConnecting] = useState(false); const [connectionError, setConnectionError] = useState(''); const [isAgentSpeaking, setIsAgentSpeaking] = useState(false); const [tasks, setTasks] = useState<ActionTask[]>([]); const [historyContext, setHistoryContext] = useState(''); const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]); const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null);
 
 const [isMuted, setIsMuted] = useState(false); const [showSidebar, setShowSidebar] = useState(false); const [showProfile, setShowProfile] = useState(false); const [showVisualPage, setShowVisualPage] = useState(false); const [visualMode, setVisualMode] = useState<VisualMode>('off'); const [visualError, setVisualError] = useState(''); const [settings, setSettings] = useState<AgentSettings>(normalizeAgentSettings(initialSettings));
 
@@ -309,7 +309,12 @@ snap.forEach((child) => {
 });
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-if (apiKey) aiRef.current = new GoogleGenAI({ apiKey });
+if (apiKey) {
+  aiRef.current = new GoogleGenAI({ apiKey });
+  setConnectionError('');
+} else {
+  setConnectionError('Missing VITE_GEMINI_API_KEY. Add it in Vercel Environment Variables.');
+}
 
 audioStreamerRef.current = new AudioStreamer();
 
@@ -550,7 +555,10 @@ setTimeout(() => {
 
 };
 
-const startSession = async () => { if (!aiRef.current) return; setConnecting(true);
+const startSession = async () => { if (!aiRef.current) { setConnectionError('Gemini is not initialized. Check VITE_GEMINI_API_KEY in Vercel.'); return; }
+
+setConnectionError('');
+setConnecting(true);
 
 try {
   await audioStreamerRef.current?.init(24000);
@@ -736,6 +744,7 @@ try {
 } catch (err) {
   console.error(err);
   setConnecting(false);
+  setConnectionError(err instanceof Error ? err.message : 'Failed to connect to Gemini Live.');
   stopSession();
 }
 
@@ -949,73 +958,76 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
         </AnimatePresence>
       </div>
 
-      <div className="mt-8 grid w-full max-w-[420px] grid-cols-3 items-center justify-items-center gap-4">
+      <div className="mt-8 flex w-full max-w-[460px] items-center justify-center gap-4 rounded-full border border-white/10 bg-black/35 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
         <button
           onClick={() => setIsMuted((prev) => !prev)}
-          className={`h-14 w-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+          className={`h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
             isMuted
               ? 'bg-red-500/10 border-red-500/30 text-red-500'
               : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'
           }`}
+          title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        <div className="flex items-center justify-center">
+        <button
+          onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())}
+          className={`h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+            visualMode !== 'off'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+              : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
+          }`}
+          title={visualMode === 'off' ? 'Start camera' : 'Open video'}
+        >
+          {visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+        </button>
+
+        <div className="mx-2 flex shrink-0 items-center justify-center">
           {!isActive ? (
             <button onClick={startSession} disabled={connecting} className="group relative">
-              <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition-all opacity-0 group-hover:opacity-100" />
-              <div className="relative w-24 h-24 bg-[#0A0A0B] border border-amber-500/20 rounded-full flex items-center justify-center group-hover:border-amber-500/50 transition-all shadow-2xl">
-                <Power className={`w-9 h-9 transition-colors ${connecting ? 'text-zinc-700' : 'text-amber-500'}`} />
+              <div className="absolute -inset-5 rounded-full bg-amber-500/15 blur-2xl opacity-80 transition-all group-hover:bg-amber-500/25" />
+              <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-amber-500/30 bg-[#0A0A0B] shadow-[0_0_55px_rgba(245,158,11,0.18)] transition-all group-hover:border-amber-400/70 active:scale-95">
+                {connecting ? <Loader2 className="h-9 w-9 animate-spin text-amber-500" /> : <Power className="h-9 w-9 text-amber-500" />}
               </div>
             </button>
           ) : (
             <button onClick={stopSession} className="group relative">
-              <div className="absolute -inset-5 bg-red-500/20 rounded-full blur-2xl opacity-100" />
-              <div className="relative w-24 h-24 bg-[#0A0A0B] border border-red-500/30 rounded-full flex items-center justify-center hover:border-red-500/60 transition-all shadow-[0_0_45px_rgba(239,68,68,0.22)]">
-                <Square className="w-7 h-7 text-red-500 fill-current" />
+              <div className="absolute -inset-5 rounded-full bg-red-500/20 blur-2xl opacity-100" />
+              <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-red-500/35 bg-[#0A0A0B] shadow-[0_0_55px_rgba(239,68,68,0.24)] transition-all hover:border-red-500/70 active:scale-95">
+                <Square className="h-7 w-7 fill-current text-red-500" />
               </div>
             </button>
           )}
         </div>
 
-        <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())}
-            className={`h-14 w-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
-              visualMode !== 'off'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
-            }`}
-            title={visualMode === 'off' ? 'Start front camera' : 'Open fullscreen visual page'}
-          >
-            {visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 flex items-center justify-center gap-3">
         <button
           onClick={switchCamera}
           disabled={visualMode === 'screen'}
-          className="h-11 w-11 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
           title="Switch front/back camera"
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className="w-5 h-5" />
         </button>
 
         <button
           onClick={startScreenShare}
-          className={`h-11 w-11 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+          className={`h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
             visualMode === 'screen'
               ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-              : 'bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30'
+              : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
           }`}
           title="Share screen"
         >
-          <MonitorUp className="w-4 h-4" />
+          <MonitorUp className="w-5 h-5" />
         </button>
       </div>
+
+      {connectionError && (
+        <div className="mt-4 max-w-[460px] rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-xs text-red-300">
+          {connectionError}
+        </div>
+      )}
     </div>
 
     <div className="absolute bottom-8 left-8 right-8 pointer-events-none">
@@ -1121,84 +1133,87 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
   <AnimatePresence>
     {showVisualPage && (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black z-[180] flex flex-col overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 z-20 px-6 py-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
-          <div>
-            <div className="text-[9px] uppercase tracking-[0.35em] text-zinc-500 font-bold">AI Visual Input</div>
-            <div className="mt-1 flex items-center gap-3">
-              <span className="text-sm uppercase tracking-widest text-white font-bold">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[180] overflow-hidden bg-black">
+        {visualMode !== 'off' ? (
+          <video ref={visualPageVideoRef} playsInline muted autoPlay className="h-full w-full bg-black object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-[#050505] px-6 text-center">
+            <div>
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                <Camera className="h-8 w-8 text-zinc-500" />
+              </div>
+              <h3 className="text-xl font-light tracking-tight text-white">No video active</h3>
+              <p className="mt-2 text-sm text-zinc-500">Start camera or screen share to show video.</p>
+              {visualError && <p className="mt-4 text-xs text-red-400">{visualError}</p>}
+            </div>
+          </div>
+        )}
+
+        <div className="absolute left-0 right-0 top-0 bg-gradient-to-b from-black/70 to-transparent px-5 pb-10 pt-[calc(env(safe-area-inset-top)+16px)]">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">Video</div>
+              <div className="mt-1 text-lg font-semibold text-white">
                 {visualMode === 'front' && 'Front Camera'}
                 {visualMode === 'back' && 'Back Camera'}
                 {visualMode === 'screen' && 'Screen Share'}
-                {visualMode === 'off' && 'Visual Input Off'}
-              </span>
-              {visualMode !== 'off' && <span className="text-[9px] uppercase tracking-widest text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 rounded-full px-2 py-1">Visible to AI</span>}
+                {visualMode === 'off' && 'Camera Off'}
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => startCameraInput('user')}
-              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all ${
-                visualMode === 'front'
-                  ? 'bg-emerald-500 text-black border-emerald-500'
-                  : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
-              }`}
-            >
-              Front
-            </button>
-            <button
-              onClick={() => startCameraInput('environment')}
-              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all ${
-                visualMode === 'back'
-                  ? 'bg-emerald-500 text-black border-emerald-500'
-                  : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
-              }`}
-            >
-              Back
-            </button>
-            <button
-              onClick={startScreenShare}
-              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all flex items-center gap-2 ${
-                visualMode === 'screen'
-                  ? 'bg-blue-500 text-black border-blue-500'
-                  : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
-              }`}
-            >
-              <MonitorUp className="w-4 h-4" /> Screen
-            </button>
-            <button onClick={requestFullscreenVideo} className="w-11 h-11 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center" title="Browser fullscreen">
-              <Maximize2 className="w-5 h-5" />
-            </button>
-            <button onClick={stopVisualInput} className="w-11 h-11 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 flex items-center justify-center" title="Stop visual input">
-              <VideoOff className="w-5 h-5" />
-            </button>
-            <button onClick={() => setShowVisualPage(false)} className="w-11 h-11 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center" title="Close visual page">
-              <X className="w-5 h-5" />
+            <button onClick={() => setShowVisualPage(false)} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-xl active:scale-95">
+              <X className="h-5 w-5" />
             </button>
           </div>
         </div>
 
-        <div className="relative flex-1 bg-black flex items-center justify-center">
-          {visualMode !== 'off' ? (
-            <video ref={visualPageVideoRef} playsInline muted autoPlay className="w-full h-full object-cover bg-black" />
-          ) : (
-            <div className="text-center px-6">
-              <div className="w-20 h-20 rounded-full border border-white/10 bg-white/5 flex items-center justify-center mx-auto mb-6">
-                <Camera className="w-8 h-8 text-zinc-500" />
-              </div>
-              <h3 className="text-white text-xl font-light tracking-tight">No visual input active</h3>
-              <p className="text-zinc-500 text-sm mt-2">Start the front camera, back camera, or screen share to make it visible to the AI.</p>
-              {visualError && <p className="text-red-400 text-xs mt-4">{visualError}</p>}
-            </div>
-          )}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-5 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-16">
+          <div className="mx-auto flex max-w-[420px] items-center justify-center gap-5 rounded-full border border-white/10 bg-black/45 px-4 py-4 backdrop-blur-xl">
+            <button
+              onClick={() => startCameraInput('user')}
+              className={`flex h-14 w-14 items-center justify-center rounded-full border transition-all ${
+                visualMode === 'front' ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-300' : 'border-white/10 bg-white/10 text-white'
+              }`}
+              title="Front camera"
+            >
+              <Camera className="h-5 w-5" />
+            </button>
 
-          {visualMode !== 'off' && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-black/60 backdrop-blur-xl border border-white/10 px-5 py-3 flex items-center gap-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] uppercase tracking-[0.3em] text-zinc-300 font-bold">Streaming frames to {activeAgent.label}</span>
-            </div>
-          )}
+            <button
+              onClick={switchCamera}
+              disabled={visualMode === 'screen'}
+              className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-all disabled:opacity-30"
+              title="Switch camera"
+            >
+              <RotateCcw className="h-5 w-5" />
+            </button>
+
+            <button
+              onClick={stopVisualInput}
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-[0_0_35px_rgba(239,68,68,0.35)] transition-all active:scale-95"
+              title="Stop video"
+            >
+              <VideoOff className="h-6 w-6" />
+            </button>
+
+            <button
+              onClick={startScreenShare}
+              className={`flex h-14 w-14 items-center justify-center rounded-full border transition-all ${
+                visualMode === 'screen' ? 'border-blue-400/40 bg-blue-500/20 text-blue-300' : 'border-white/10 bg-white/10 text-white'
+              }`}
+              title="Share screen"
+            >
+              <MonitorUp className="h-5 w-5" />
+            </button>
+
+            <button
+              onClick={requestFullscreenVideo}
+              className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-all active:scale-95"
+              title="Fullscreen"
+            >
+              <Maximize2 className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       </motion.div>
     )}
