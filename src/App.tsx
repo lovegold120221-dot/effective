@@ -202,11 +202,7 @@ const BEATRICE_AUDIO_PROCESSING_HINTS = {
   targetInputRate: 16000,
 };
 
-const getGeminiApiKey = () => {
-  const viteEnv = (import.meta as any)?.env;
-  const nodeEnv = typeof process !== 'undefined' ? (process as any)?.env : undefined;
-  return viteEnv?.VITE_GEMINI_API_KEY || viteEnv?.GEMINI_API_KEY || nodeEnv?.VITE_GEMINI_API_KEY || nodeEnv?.GEMINI_API_KEY || '';
-};
+const getGeminiApiKey = () => (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
 
 const getAgentProfile = (agentId?: string): AgentProfile => {
   return AGENT_PROFILES[(agentId as AgentId) || DEFAULT_AGENT_ID] || AGENT_PROFILES[DEFAULT_AGENT_ID];
