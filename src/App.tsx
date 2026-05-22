@@ -5,7 +5,7 @@ import { ref, get, set, push, onValue, query, orderByChild, limitToLast, serverT
 import { GoogleGenAI, LiveServerMessage, Modality, Type, ToolCall } from '@google/genai';
 import { AudioRecorder, AudioStreamer } from './lib/audio';
 import { BIBLE_PERSONALITY } from './lib/personality';
-import { Square, Loader2, Power, LogOut, Volume2, Command, Check, Menu, Mic, MicOff, Video, VideoOff, X, Save, Camera } from 'lucide-react';
+import { Square, Loader2, Power, Volume2, Command, Check, Menu, Mic, MicOff, Video, VideoOff, X, Save, Camera } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 interface ChatMessage {
@@ -696,26 +696,19 @@ function BeatriceAgent({ user, onLogout, initialSettings }: { user: User, onLogo
 
         {/* Navigation / Header */}
         <header className="px-8 py-6 flex items-center justify-between border-b border-white/5 bg-[#050505]/80 backdrop-blur-md z-50">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
              <button onClick={() => setShowSidebar(true)} className="p-2 -ml-2 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-zinc-400 hover:text-white">
                 <Menu className="w-5 h-5" />
              </button>
-             <div className="flex flex-col gap-1">
-               <span className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none">Eburon Agent</span>
-               <div className="flex items-center gap-3">
-                 <select
-                   value={activeAgent.id}
-                   onChange={(e) => handleAgentChange(e.target.value as AgentId)}
-                   className="bg-[#0A0A0B] border border-white/10 rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-widest text-zinc-100 outline-none hover:border-amber-500/50 focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/40 transition-all"
-                   aria-label="Select Eburon agent"
-                 >
-                   <option value="maximus">Maximus</option>
-                   <option value="beatrice">Beatrice</option>
-                 </select>
-                 <span className="hidden sm:inline text-[9px] uppercase tracking-[0.2em] text-zinc-600 font-bold">Voice: {activeAgent.voiceName}</span>
-               </div>
-               <h1 className="text-sm font-medium tracking-wide text-zinc-100 uppercase">{user.displayName || 'Master E'}</h1>
-             </div>
+             <select
+               value={activeAgent.id}
+               onChange={(e) => handleAgentChange(e.target.value as AgentId)}
+               className="bg-[#0A0A0B] border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-zinc-100 outline-none hover:border-amber-500/50 focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/40 transition-all"
+               aria-label="Select Eburon agent"
+             >
+               <option value="maximus">Maximus</option>
+               <option value="beatrice">Beatrice</option>
+             </select>
           </div>
           
           <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
@@ -945,16 +938,6 @@ function BeatriceAgent({ user, onLogout, initialSettings }: { user: User, onLogo
               </div>
            </div>
         </main>
-        
-        {/* Footer Meta */}
-        <footer className="px-8 py-4 border-t border-white/5 bg-[#050505] flex items-center justify-between text-[8px] uppercase tracking-[0.4em] text-zinc-700 font-bold z-10">
-           <span>Model: Gemini 3.1 Flash Live // Agent: {activeAgent.label} // Voice: {activeAgent.voiceName}</span>
-           <div className="flex gap-4">
-              <span>Latency: Optmzd</span>
-              <span>Enc: PCM-16</span>
-              <span>Mem: RTDB-Active</span>
-           </div>
-        </footer>
 
         {/* --- History Sidebar Overlay --- */}
         <AnimatePresence>
