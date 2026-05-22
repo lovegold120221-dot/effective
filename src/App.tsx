@@ -387,7 +387,7 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none dot-pattern" />
         <div className="absolute top-0 left-1/2 -ml-[400px] w-[800px] h-[800px] bg-amber-500/5 rounded-full blur-[120px] pointer-events-none" />
         <div className="relative z-10 flex flex-col items-center max-w-sm w-full">
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-zinc-800 to-black p-[2px] mb-8 shadow-2xl relative group">
@@ -1398,38 +1398,10 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
       <header className="relative z-50 px-4 pt-[calc(env(safe-area-inset-top)+14px)] pb-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-2xl shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
         <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
-          <button onClick={() => setShowSidebar(true)} className="group relative h-14 w-14 shrink-0 rounded-[1.35rem] border border-amber-500/15 bg-[#070707]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_10px_30px_rgba(0,0,0,0.45)] transition-all hover:border-amber-500/45 active:scale-95">
-            <Menu className="relative mx-auto h-6 w-6 text-zinc-300 transition-colors group-hover:text-amber-300" />
-          </button>
-          <div className="min-w-0 flex-1 rounded-[1.55rem] border border-amber-500/20 bg-[#070707]/85 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_40px_rgba(0,0,0,0.45)]">
-            <div className="flex items-center justify-between gap-3">
-              <button onClick={() => handleAgentChange(activeAgent.id === 'maximus' ? 'beatrice' : 'maximus')} className="min-w-0 text-left">
-                <div className="truncate text-[22px] font-black uppercase leading-none tracking-[0.28em] text-zinc-100 sm:text-2xl">{activeAgent.label}</div>
-                <div className="mt-1 hidden text-[8px] font-bold uppercase tracking-[0.28em] text-zinc-600 sm:block">Eburon AI</div>
-              </button>
-              <div className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 ${isActive ? (isAgentSpeaking ? 'border-amber-500/35 bg-amber-500/10 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300') : 'border-white/10 bg-white/[0.03] text-zinc-500'}`}>
-                <span className="flex h-5 items-center gap-1">
-                  {[0, 1, 2].map((bar) => (
-                    <motion.span key={bar} animate={isActive && isAgentSpeaking ? { height: ['7px', '17px', '7px'], opacity: [0.55, 1, 0.55] } : { height: '8px', opacity: 0.45 }} transition={{ duration: 0.65, repeat: isActive && isAgentSpeaking ? Infinity : 0, delay: bar * 0.1 }} className="w-1.5 rounded-full bg-current" />
-                  ))}
-                </span>
-                <span className="whitespace-nowrap text-[12px] font-medium tracking-wide sm:text-sm">{statusText}</span>
-              </div>
-            </div>
-          </div>
-          <button onClick={() => setShowViewport(!showViewport)} className={`relative h-14 w-14 shrink-0 rounded-[1.35rem] border transition-all active:scale-95 flex items-center justify-center ${showViewport ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.15)]' : 'border-white/10 bg-[#070707]/80 text-zinc-500 hover:text-zinc-300 hover:border-white/20'}`}>
-            <PanelRight className="h-6 w-6" />
-            {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 text-[9px] font-bold text-black flex items-center justify-center">
-                {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length}
-              </span>
-            )}
-          </button>
-          <button onClick={() => setShowProfile(true)} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[1.35rem] border border-amber-500/25 bg-[#070707] p-[3px] shadow-[0_0_28px_rgba(245,158,11,0.12)] transition-all hover:border-amber-400/60 active:scale-95">
-            <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[1.1rem] bg-gradient-to-br from-purple-600 via-violet-700 to-[#321066] text-2xl font-black lowercase text-white">
-              {settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Profile" className="h-full w-full object-cover" /> : (user.displayName?.[0] || 'g').toLowerCase()}
-            </span>
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-center">
+          <button onClick={() => handleAgentChange(activeAgent.id === 'maximus' ? 'beatrice' : 'maximus')} aria-label={`Switch to ${activeAgent.id === 'maximus' ? 'Beatrice' : 'Maximus'} agent`} className="text-center">
+            <div className="text-[22px] font-black uppercase leading-none tracking-[0.28em] text-zinc-100 sm:text-2xl">{activeAgent.label}</div>
+            <div className="mt-1 text-[8px] font-bold uppercase tracking-[0.28em] text-zinc-600">Eburon AI</div>
           </button>
         </div>
       </header>
@@ -1524,11 +1496,11 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
           <div className="mt-8 w-full max-w-[390px] overflow-visible rounded-[2rem] border border-white/10 bg-black/45 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <div className="grid h-11 w-full grid-cols-[44px_44px_minmax(78px,1fr)_44px_44px] items-end justify-items-center gap-2 overflow-visible">
-              <button onClick={() => setIsMuted((prev) => !prev)} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${isMuted ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'}`}>{isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}</button>
-              <button onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${visualMode !== 'off' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'}`}>{visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</button>
+              <button onClick={() => setIsMuted((prev) => !prev)} aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${isMuted ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'}`}>{isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}</button>
+              <button onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())} aria-label={visualMode !== 'off' ? 'Open visual page' : 'Enable camera'} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${visualMode !== 'off' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'}`}>{visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</button>
               <div className="relative flex h-11 w-[92px] shrink-0 items-end justify-center overflow-visible">
                 {!isActive ? (
-                  <button onClick={startSession} disabled={connecting} className="group absolute bottom-0 left-1/2 -translate-x-1/2">
+                  <button onClick={startSession} disabled={connecting} aria-label="Start session" className="group absolute bottom-0 left-1/2 -translate-x-1/2">
                     <div className="absolute -inset-4 rounded-full bg-amber-500/15 blur-2xl opacity-80 transition-all group-hover:bg-amber-500/25" />
                     <div className="relative flex h-[84px] w-[84px] items-center justify-center overflow-hidden rounded-full border border-amber-500/30 bg-[#0A0A0B] shadow-[0_0_55px_rgba(245,158,11,0.18)] transition-all group-hover:border-amber-400/70 active:scale-95">
                       <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(245,158,11,0.16),transparent_64%)]" />
@@ -1539,7 +1511,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                     </div>
                   </button>
                 ) : (
-                  <button onClick={stopSession} className="group absolute bottom-0 left-1/2 -translate-x-1/2">
+                  <button onClick={stopSession} aria-label="Stop session" className="group absolute bottom-0 left-1/2 -translate-x-1/2">
                     <div className="absolute -inset-4 rounded-full bg-red-500/20 blur-2xl opacity-100" />
                     <div className="relative flex h-[84px] w-[84px] items-center justify-center overflow-hidden rounded-full border border-red-500/35 bg-[#0A0A0B] shadow-[0_0_55px_rgba(239,68,68,0.24)] transition-all hover:border-red-500/70 active:scale-95">
                       <Square className="relative z-10 h-7 w-7 fill-current text-red-500" />
@@ -1547,7 +1519,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                   </button>
                 )}
               </div>
-              <button onClick={switchCamera} disabled={visualMode === 'screen'} className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"><RotateCcw className="w-5 h-5" /></button>
+              <button onClick={switchCamera} disabled={visualMode === 'screen'} aria-label="Switch camera" className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"><RotateCcw className="w-5 h-5" /></button>
               <button onClick={screenShareSupported ? startScreenShare : () => setPermissionStatus('Screen share is not supported in this browser. Use camera mode instead.')} disabled={!screenShareSupported} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${visualMode === 'screen' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : screenShareSupported ? 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30' : 'bg-[#0A0A0B] border-white/5 text-zinc-700 cursor-not-allowed opacity-50'}`} title={screenShareSupported ? 'Share screen' : 'Screen share unsupported in this browser'}><MonitorUp className="w-5 h-5" /></button>
             </div>
           </div>
@@ -1566,6 +1538,30 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
         onClearDismissed={clearDismissedToolCalls}
       />
 
+      {/* Sticky Bottom Navbar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-4 bg-gradient-to-t from-black via-black/95 to-transparent pointer-events-none">
+        <div className="mx-auto max-w-lg">
+          <div className="pointer-events-auto flex items-end justify-center gap-3 rounded-2xl border border-white/10 bg-black/70 backdrop-blur-2xl p-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
+            <button onClick={() => setShowSidebar(true)} type="button" aria-label="Open sidebar" className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all ${showSidebar ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200'}`}>
+              <Menu className="h-5 w-5" />
+            </button>
+            <button onClick={() => setShowViewport(!showViewport)} type="button" aria-label="Toggle viewport" className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all ${showViewport ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200'}`}>
+              <PanelRight className="h-5 w-5" />
+              {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-black">
+                  {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length}
+                </span>
+              )}
+            </button>
+            <button onClick={() => setShowProfile(true)} type="button" aria-label="Open profile settings" className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-zinc-400 transition-all hover:bg-white/10 hover:text-zinc-200">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 via-violet-700 to-[#321066] text-xs font-bold text-white">
+                {settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Profile" className="h-full w-full rounded-full object-cover" /> : (user.displayName?.[0] || 'g').toLowerCase()}
+              </span>
+            </button>
+          </div>
+        </div>
+      </nav>
+
       {/* Tool Confirmation Modal */}
       <AnimatePresence>
         {pendingConfirmation && (
@@ -1581,7 +1577,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       <AnimatePresence>
         {toolModal && (
           <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+96px)] z-[170] mx-auto max-w-md rounded-3xl border border-white/10 bg-[#070707]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl">
-            <button onClick={() => setToolModal(null)} className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-zinc-400 transition-all hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
+            <button onClick={() => setToolModal(null)} aria-label="Close modal" className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-zinc-400 transition-all hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
             <div className="pr-11"><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-500">Tool Calling</div><h3 className="mt-2 text-lg font-semibold text-white">{toolModal.title}</h3><p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">{toolModal.serviceName}</p></div>
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-center gap-3">{toolModal.status === 'processing' ? <Loader2 className="h-5 w-5 animate-spin text-amber-500" /> : toolModal.status === 'failed' ? <X className="h-5 w-5 text-red-400" /> : <Check className="h-5 w-5 text-emerald-400" />}<div className="min-w-0"><div className="truncate text-sm text-zinc-100">{toolModal.action}</div><div className="mt-1 text-xs text-zinc-500">{toolModal.message}</div></div></div>{toolModal.result && <div className="mt-4 max-h-40 overflow-y-auto rounded-xl bg-black/30 p-3 text-xs leading-relaxed text-zinc-300">{toolModal.result}</div>}</div>
           </motion.div>
@@ -1604,7 +1600,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}
-                  <button onClick={() => setShowSidebar(false)} className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+                  <button onClick={() => setShowSidebar(false)} aria-label="Close sidebar" className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
