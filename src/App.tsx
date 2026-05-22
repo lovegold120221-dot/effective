@@ -1826,55 +1826,77 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
   <AnimatePresence>
     {showProfile && (
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="fixed inset-0 bg-[#050505] z-[200] overflow-y-auto font-sans flex flex-col">
-        <div className="p-6 border-b border-white/10 flex items-center justify-between sticky top-0 bg-[#050505]/80 backdrop-blur-xl z-10 w-full max-w-3xl mx-auto">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 20 }}
+        className="fixed inset-0 z-[200] flex flex-col overflow-y-auto bg-[#050505] font-sans"
+      >
+        <div className="sticky top-0 z-10 mx-auto flex w-full max-w-3xl items-center justify-between border-b border-white/10 bg-[#050505]/80 p-6 backdrop-blur-xl">
           <div>
-            <h2 className="text-sm font-bold text-white tracking-widest uppercase">System Settings</h2>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">Persistent Base Persona & Agent Directives</p>
+            <h2 className="text-sm font-bold uppercase tracking-widest text-white">System Settings</h2>
+            <p className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">
+              Persistent Base Persona & Tool Calling
+            </p>
           </div>
+
           <div className="flex gap-2">
-            <button onClick={saveSettings} className="px-4 py-2 bg-amber-500 text-black text-xs font-bold uppercase tracking-widest rounded-xl hover:bg-amber-400 active:scale-95 transition-all flex items-center gap-2">
-              <Save className="w-4 h-4" /> Save
+            <button
+              onClick={saveSettings}
+              className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-widest text-black transition-all hover:bg-amber-400 active:scale-95"
+            >
+              <Save className="h-4 w-4" /> Save
             </button>
-            <button onClick={() => setShowProfile(false)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-colors">
-              <X className="w-5 h-5" />
+            <button
+              onClick={() => setShowProfile(false)}
+              className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <X className="h-5 w-5" />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 w-full max-w-3xl mx-auto p-6 flex flex-col gap-8 pb-20">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 p-6 pb-24">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <ShieldCheck className="w-5 h-5 text-amber-500 mb-3" />
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Base Prompt</div>
-              <div className="text-sm text-white mt-1">Bible persona loads first</div>
+              <ShieldCheck className="mb-3 h-5 w-5 text-amber-500" />
+              <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Base Prompt</div>
+              <div className="mt-1 text-sm text-white">Bible persona loads first</div>
             </div>
+
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <UserRound className="w-5 h-5 text-emerald-500 mb-3" />
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Agent Layer</div>
-              <div className="text-sm text-white mt-1">{activeAgent.label}</div>
+              <UserRound className="mb-3 h-5 w-5 text-emerald-500" />
+              <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Agent Layer</div>
+              <div className="mt-1 text-sm text-white">{activeAgent.label}</div>
             </div>
+
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <BrainCircuit className="w-5 h-5 text-blue-400 mb-3" />
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Memory</div>
-              <div className="text-sm text-white mt-1">RTDB persistent</div>
+              <BrainCircuit className="mb-3 h-5 w-5 text-blue-400" />
+              <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Memory</div>
+              <div className="mt-1 text-sm text-white">RTDB persistent</div>
             </div>
           </div>
 
           <div className="flex flex-col items-center gap-4">
-            <div className="relative w-32 h-32 rounded-full border-2 border-white/10 bg-zinc-900 overflow-hidden flex items-center justify-center group">
+            <div className="group relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-2 border-white/10 bg-zinc-900">
               {settings.avatarUrl || user.photoURL ? (
-                <img src={settings.avatarUrl || user.photoURL || ''} alt="Avatar" className="w-full h-full object-cover group-hover:opacity-50 transition-opacity" />
+                <img
+                  src={settings.avatarUrl || user.photoURL || ''}
+                  alt="Avatar"
+                  className="h-full w-full object-cover transition-opacity group-hover:opacity-50"
+                />
               ) : (
-                <div className="text-4xl text-zinc-700 font-bold">{user.displayName?.[0] || 'U'}</div>
+                <div className="text-4xl font-bold text-zinc-700">{user.displayName?.[0] || 'U'}</div>
               )}
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                <Camera className="w-8 h-8 text-white drop-shadow-md" />
+
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                <Camera className="h-8 w-8 text-white drop-shadow-md" />
               </div>
+
               <input
                 type="file"
                 accept="image/*"
-                className="absolute inset-0 opacity-0 cursor-pointer"
+                className="absolute inset-0 cursor-pointer opacity-0"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
@@ -1897,45 +1919,53 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 }}
               />
             </div>
+
             <div className="text-center">
-              <h3 className="text-xs uppercase tracking-widest font-bold text-zinc-300">Avatar Node</h3>
-              <p className="text-[10px] text-zinc-600 mt-1">Saved per active agent</p>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-300">Avatar Node</h3>
+              <p className="mt-1 text-[10px] text-zinc-600">Saved per active agent</p>
             </div>
           </div>
 
           <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold tracking-widest uppercase text-zinc-500 flex items-center gap-2">
-                <Settings2 className="w-3 h-3" /> Agent Profile
+              <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                <Settings2 className="h-3 w-3" /> Agent Profile
               </label>
               <select
                 value={activeAgent.id}
                 onChange={(e) => handleAgentChange(e.target.value as AgentId)}
-                className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-white font-serif text-xl focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
+                className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"
               >
                 <option value="maximus">Maximus</option>
                 <option value="beatrice">Beatrice</option>
               </select>
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Changing agent loads that agent's saved directives.</p>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-600">
+                Changing agent loads that agent&apos;s saved directives.
+              </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">Conversation Start Mode</label>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                Conversation Start Mode
+              </label>
               <select
                 value={settings.conversationSeedMode || 'memory'}
                 onChange={(e) => updateConversationSeedMode(e.target.value as ConversationSeedMode)}
-                className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-white text-sm focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
+                className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-sm text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"
               >
                 <option value="memory">Use past conversation / memory</option>
                 <option value="news">Use web/news/search topic when backend supports it</option>
                 <option value="idea">Start with a useful product idea</option>
                 <option value="quiet">Stay quiet until Master E speaks</option>
               </select>
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Controls how the agent starts a session when Master E is silent.</p>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-600">
+                Controls how the agent starts a session when Master E is silent.
+              </p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Tool Calling Power</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Tool Calling Power</div>
+
               <div className="mt-4 space-y-3">
                 {([
                   ['gmail', 'Gmail reading and actions'],
@@ -1943,7 +1973,10 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                   ['context', 'Location, places, weather, timezone, directions'],
                   ['vision', 'Video stream awareness'],
                 ] as [ToolKey, string][]).map(([tool, label]) => (
-                  <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                  <label
+                    key={tool}
+                    className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"
+                  >
                     <span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{label}</span>
                     <input
                       type="checkbox"
@@ -1956,7 +1989,9 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
               </div>
 
               <label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">Auto describe opened video/screen</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">
+                  Auto describe opened video/screen
+                </span>
                 <input
                   type="checkbox"
                   checked={settings.autoDescribeVisual ?? true}
@@ -1965,7 +2000,9 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 />
               </label>
 
-              <div className="mt-4 text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Available Context Tools</div>
+              <div className="mt-4 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                Available Context Tools
+              </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-widest text-zinc-400">
                 <span>Geolocation</span>
                 <span>Places</span>
@@ -1975,12 +2012,15 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 <span>Local Search</span>
                 <span>Calendar Context</span>
               </div>
-              <p className="mt-3 text-[10px] text-zinc-600 uppercase tracking-widest">{geoPermissionStatus}</p>
+
+              <p className="mt-3 text-[10px] uppercase tracking-widest text-zinc-600">{geoPermissionStatus}</p>
+
               {lastKnownLocation && (
-                <p className="mt-2 text-[10px] text-blue-300/80 uppercase tracking-widest">
+                <p className="mt-2 text-[10px] uppercase tracking-widest text-blue-300/80">
                   Last location: {lastKnownLocation.latitude.toFixed(4)}, {lastKnownLocation.longitude.toFixed(4)}
                 </p>
               )}
+
               <button
                 type="button"
                 onClick={() => requestBrowserLocation().catch((error) => setVisualError(error.message))}
@@ -1990,31 +2030,41 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
               </button>
             </div>
 
-            <div className="space-y-2 flex-1 flex flex-col">
-              <label className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">Persistent Bible Base Persona</label>
+            <div className="flex flex-col space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                Persistent Bible Base Persona
+              </label>
               <textarea
                 value={settings.persistentBasePrompt}
                 onChange={(e) => setSettings((current) => ({ ...current, persistentBasePrompt: e.target.value }))}
-                className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-zinc-300 font-mono text-xs leading-relaxed focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all min-h-[220px] resize-y"
+                className="min-h-[220px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"
                 placeholder="Bible personality base prompt..."
               />
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">This is injected first into every live session before Beatrice or Maximus directives.</p>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-600">
+                This is injected first into every live session before Beatrice or Maximus directives.
+              </p>
             </div>
 
-            <div className="space-y-2 flex-1 flex flex-col">
-              <label className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">{activeAgent.label} System Directives</label>
+            <div className="flex flex-col space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                {activeAgent.label} System Directives
+              </label>
               <textarea
                 value={settings.systemPrompt}
                 onChange={(e) => updateActiveAgentPrompt(e.target.value)}
-                className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-zinc-300 font-mono text-xs leading-relaxed focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all min-h-[320px] resize-y"
+                className="min-h-[320px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"
                 placeholder="Agent system directives..."
               />
-              $1
+              <p className="text-[10px] uppercase tracking-widest text-zinc-600">
+                Saved separately per agent so switching does not erase custom prompts.
+              </p>
+            </div>
+          </div>
 
           <div className="mt-auto border-t border-white/10 pt-6">
             <button
               onClick={onLogout}
-              className="w-full rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:bg-red-500/15 hover:border-red-500/45 active:scale-[0.99]"
+              className="w-full rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:border-red-500/45 hover:bg-red-500/15 active:scale-[0.99]"
             >
               Logout
             </button>
