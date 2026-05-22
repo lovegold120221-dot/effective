@@ -405,7 +405,23 @@ return () => {
 
 }, [isActive]);
 
-useEffect(() => { const historyRef = query(ref(rtdb, 'users/' + user.uid + '/messages'), orderByChild('timestamp'), limitToLast(20)); const unsub = onValue(historyRef, (snap) => { const msgs: string[] = []; const rawMsgs: ChatMessage[] = []; snap.forEach((child) => { const m = child.val() as ChatMessage; msgs.push(${m.role.toUpperCase()}: ${m.text}); rawMsgs.push(m); }); setHistoryMsgs(rawMsgs); setHistoryContext(msgs.length > 0 ? Previous conversation for context memory:\n${msgs.join('\n')} : ''); });
+useEffect(() => { const historyRef = query( ref(rtdb, 'users/' + user.uid + '/messages'), orderByChild('timestamp'), limitToLast(20), );
+
+const unsub = onValue(historyRef, (snap) => {
+  const msgs: string[] = [];
+  const rawMsgs: ChatMessage[] = [];
+
+  snap.forEach((child) => {
+    const m = child.val() as ChatMessage;
+    msgs.push(`${m.role.toUpperCase()}: ${m.text}`);
+    rawMsgs.push(m);
+  });
+
+  setHistoryMsgs(rawMsgs);
+  setHistoryContext(
+    msgs.length > 0 ? `Previous conversation for context memory:
+
+${msgs.join(' ')}` : '', ); });
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 if (apiKey) {
