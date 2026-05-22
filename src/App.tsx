@@ -416,7 +416,7 @@ if (!user) { return ( <div className="min-h-screen bg-[#050505] text-white flex 
 
 return <EburonAgent user={user} onLogout={handleLogout} initialSettings={settings} />; }
 
-function EburonAgent({ user, onLogout, initialSettings, }: { user: User; onLogout: () => void; initialSettings: AgentSettings; }) { const [isActive, setIsActive] = useState(false); const [connecting, setConnecting] = useState(false); const [connectionError, setConnectionError] = useState(''); const [geoPermissionStatus, setGeoPermissionStatus] = useState('Location permission not requested yet.'); const [lastKnownLocation, setLastKnownLocation] = useState<BrowserGeoLocation | null>(null); const [isAgentSpeaking, setIsAgentSpeaking] = useState(false); const [tasks, setTasks] = useState<ActionTask[]>([]); const [historyContext, setHistoryContext] = useState(''); const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]); const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null);
+function EburonAgent({ user, onLogout, initialSettings, }: { user: User; onLogout: () => void; initialSettings: AgentSettings; }) { const [isActive, setIsActive] = useState(false); const [connecting, setConnecting] = useState(false); const [connectionError, setConnectionError] = useState(''); const [geoPermissionStatus, setGeoPermissionStatus] = useState('Location permission not requested yet.'); const [lastKnownLocation, setLastKnownLocation] = useState<BrowserGeoLocation | null>(null); const [isAgentSpeaking, setIsAgentSpeaking] = useState(false); const [tasks, setTasks] = useState<ActionTask[]>([]); const [historyContext, setHistoryContext] = useState(''); const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]); const [currentTranscript, setCurrentTranscript] = useState<{ role: 'user' | 'model'; text: string } | null>(null); const [userAudioLevel, setUserAudioLevel] = useState(0.12); const [speakerPulseLevel, setSpeakerPulseLevel] = useState(0.18);
 
 const [isMuted, setIsMuted] = useState(false); const [showSidebar, setShowSidebar] = useState(false); const [showProfile, setShowProfile] = useState(false); const [showVisualPage, setShowVisualPage] = useState(false); const [visualMode, setVisualMode] = useState<VisualMode>('off'); const [visualError, setVisualError] = useState(''); const [toolModal, setToolModal] = useState<ToolInteractionModal | null>(null); const [settings, setSettings] = useState<AgentSettings>(normalizeAgentSettings(initialSettings));
 
@@ -451,7 +451,7 @@ return [
 
 }, [settings.conversationSeedMode]);
 
-const aiRef = useRef<GoogleGenAI | null>(null); const sessionRef = useRef<any>(null); const audioStreamerRef = useRef<AudioStreamer | null>(null); const audioRecorderRef = useRef<AudioRecorder | null>(null); const recognitionRef = useRef<any>(null); const transcriptRef = useRef<{ text: string; role: 'user' | 'model' } | null>(null); const transcriptTimeoutRef = useRef<any>(null); const conversationSeedSentRef = useRef(false); const visualDescribeTimeoutRef = useRef<any>(null);
+const aiRef = useRef<GoogleGenAI | null>(null); const sessionRef = useRef<any>(null); const audioStreamerRef = useRef<AudioStreamer | null>(null); const audioRecorderRef = useRef<AudioRecorder | null>(null); const recognitionRef = useRef<any>(null); const transcriptRef = useRef<{ text: string; role: 'user' | 'model' } | null>(null); const transcriptTimeoutRef = useRef<any>(null); const conversationSeedSentRef = useRef(false); const visualDescribeTimeoutRef = useRef<any>(null); const silenceTimerRef = useRef<any>(null); const silentNudgeCountRef = useRef(0); const micPulseTimerRef = useRef<any>(null);
 
 const isMutedRef = useRef(false); const isActiveRef = useRef(false); const stoppingRef = useRef(false);
 
@@ -464,6 +464,18 @@ useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
 useEffect(() => { visualModeRef.current = visualMode; }, [visualMode]);
 
 useEffect(() => { lastKnownLocationRef.current = lastKnownLocation; }, [lastKnownLocation]);
+
+useEffect(() => { if (!isActive) { setUserAudioLevel(0.12); setSpeakerPulseLevel(0.18); if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current); return; }
+
+const pulse = window.setInterval(() => {
+  if (!isAgentSpeaking) {
+    setSpeakerPulseLevel(0.14 + Math.random() * 0.08);
+  }
+}, 900);
+
+return () => window.clearInterval(pulse);
+
+}, [isActive, isAgentSpeaking]);
 
 useEffect(() => { setSettings(normalizeAgentSettings(initialSettings)); }, [initialSettings]);
 
@@ -544,6 +556,51 @@ try {
 } catch (e) {
   console.error(e);
 }
+
+};
+
+const sendHumanSilenceNudge = (reason: 'initial' | 'long-silence' | 'mic-check') => { if (!sessionRef.current || !isActiveRef.current) return;
+
+const prompts = {
+  initial:
+    'Master E has been quiet for a few seconds. Start gently in a low tone, but do not say "I’m here". Use a natural human filler first, then mention one useful thing from memory or ask softly if the mic is off.',
+  'long-silence':
+    'Master E is still quiet. Do a very soft, natural low-tone filler or tiny harmless humor. Example style: "hmm... baka naka-off yung mic mo, Master E" or "mm... saglit, hawak ko pa yung thread natin." Keep it short and human.',
+  'mic-check':
+    'Master E may not be speaking or the mic may be muted. Ask gently and naturally if the mic is off. Do not sound like an AI system message.',
+};
+
+try {
+  if (typeof sessionRef.current.sendClientContent === 'function') {
+    sessionRef.current.sendClientContent({
+      turns: [
+        {
+          role: 'user',
+          parts: [{ text: prompts[reason] }],
+        },
+      ],
+      turnComplete: true,
+    });
+  }
+} catch {}
+
+};
+
+const resetSilenceTimer = () => { if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current); if (!isActiveRef.current) return;
+
+silenceTimerRef.current = window.setTimeout(() => {
+  silentNudgeCountRef.current += 1;
+
+  if (silentNudgeCountRef.current === 1) {
+    sendHumanSilenceNudge('initial');
+  } else if (silentNudgeCountRef.current === 2) {
+    sendHumanSilenceNudge('mic-check');
+  } else {
+    sendHumanSilenceNudge('long-silence');
+  }
+
+  resetSilenceTimer();
+}, silentNudgeCountRef.current === 0 ? 8500 : 16000);
 
 };
 
@@ -887,6 +944,12 @@ try {
 
 stopVisualInput();
 
+if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+if (micPulseTimerRef.current) clearTimeout(micPulseTimerRef.current);
+silentNudgeCountRef.current = 0;
+setUserAudioLevel(0.12);
+setSpeakerPulseLevel(0.18);
+
 setIsActive(false);
 setConnecting(false);
 setCurrentTranscript(null);
@@ -996,7 +1059,11 @@ try {
                 transcriptTimeoutRef.current = setTimeout(() => setCurrentTranscript(null), 3000);
               }
 
-              if (finalText.trim()) saveMessage('user', finalText.trim());
+              if (finalText.trim()) {
+                silentNudgeCountRef.current = 0;
+                resetSilenceTimer();
+                saveMessage('user', finalText.trim());
+              }
             };
 
             recognitionRef.current.onend = () => {
@@ -1021,7 +1088,17 @@ try {
         const RecorderCtor = AudioRecorder as any;
         audioRecorderRef.current = new RecorderCtor(
           (base64: string) => {
-            if (isMutedRef.current) return;
+            if (isMutedRef.current) {
+              setUserAudioLevel(0.06);
+              return;
+            }
+
+            // Lightweight synthetic input pulse for UI responsiveness.
+            // Real PCM metering should live inside AudioRecorder later, but this keeps the center mic visual alive now.
+            setUserAudioLevel(0.18 + Math.random() * 0.62);
+            if (micPulseTimerRef.current) clearTimeout(micPulseTimerRef.current);
+            micPulseTimerRef.current = window.setTimeout(() => setUserAudioLevel(0.12), 180);
+
             sessionPromise.then((session) => {
               session.sendRealtimeInput({
                 audio: { data: base64, mimeType: 'audio/pcm;rate=16000' },
@@ -1035,6 +1112,8 @@ try {
         audioRecorderRef.current.start();
         setIsActive(true);
         setConnecting(false);
+        silentNudgeCountRef.current = 0;
+        resetSilenceTimer();
 
         if (!conversationSeedSentRef.current && conversationSeedPrompt) {
           conversationSeedSentRef.current = true;
@@ -1113,7 +1192,11 @@ try {
             if (audio) {
               audioStreamerRef.current?.addPCM16(audio);
               setIsAgentSpeaking(true);
-              setTimeout(() => setIsAgentSpeaking(false), 800);
+              setSpeakerPulseLevel(0.75 + Math.random() * 0.25);
+              setTimeout(() => {
+                setIsAgentSpeaking(false);
+                setSpeakerPulseLevel(0.18);
+              }, 800);
             }
 
             const text = parts.find((p) => p.text)?.text;
@@ -1316,19 +1399,12 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
   <main className="relative flex-1 overflow-hidden bg-[#020203] px-5 pb-8 pt-8">
     <div className="pointer-events-none absolute inset-0">
-      <div
-        className="absolute inset-0 opacity-[0.055]"
-        style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '32px 32px' }}
-      />
-      <div className="absolute left-1/2 top-[42%] h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.04]" />
-      <div className="absolute left-1/2 top-[42%] h-[680px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.06]" />
-      <div className="absolute left-1/2 top-[42%] h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.08]" />
-      <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-amber-500/[0.08] to-transparent" />
-      <div className="absolute left-0 right-0 top-[42%] h-px bg-gradient-to-r from-transparent via-amber-500/[0.08] to-transparent" />
-      <div className="absolute left-1/2 top-[42%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.035] blur-[80px]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,rgba(245,158,11,0.16),rgba(2,2,3,0.52)_34%,rgba(2,2,3,1)_78%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),transparent_22%,rgba(245,158,11,0.035)_72%,transparent)]" />
+      <div className="absolute left-1/2 top-[38%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.035] blur-[90px]" />
     </div>
 
-    <div className="relative flex h-full flex-col items-center justify-center">
+    <div className="relative flex h-full flex-col items-center justify-center overflow-hidden">
       <div className="relative flex w-full max-w-[520px] aspect-square items-center justify-center">
         <AnimatePresence>
           {isActive && (
@@ -1355,8 +1431,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
             className="absolute inset-0 opacity-[0.11] pointer-events-none"
             style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.85) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.85) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
           />
-          <div className="absolute inset-8 rounded-full border border-amber-500/10" />
-          <div className="absolute inset-16 rounded-full border border-white/[0.04]" />
+          <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(245,158,11,0.10),transparent_62%)]" />
 
           {connecting ? (
             <div className="flex flex-col items-center gap-3">
@@ -1364,15 +1439,23 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
               <span className="text-[10px] uppercase tracking-widest text-amber-500/60 font-bold">Connecting</span>
             </div>
           ) : isActive ? (
-            <div className="flex gap-2 items-end h-20">
-              {[0.4, 0.5, 0.3, 0.6, 0.45, 0.55, 0.35].map((duration, index) => (
-                <motion.div
-                  key={index}
-                  animate={{ height: isAgentSpeaking ? ['22px', '76px', '22px'] : '14px', opacity: isAgentSpeaking ? 1 : 0.34 }}
-                  transition={{ duration, repeat: Infinity, delay: index * 0.05 }}
-                  className="w-2.5 bg-amber-500 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.65)]"
-                />
-              ))}
+            <div className="relative flex h-[44%] w-[78%] items-center justify-center overflow-hidden rounded-full">
+              <div className="absolute inset-0 rounded-full bg-amber-500/[0.035] blur-xl" />
+              {[0.22, 0.34, 0.48, 0.62, 0.78, 0.92, 0.7, 0.52, 0.38, 0.28].map((base, index) => {
+                const centerWeight = 1 - Math.abs(index - 4.5) / 5;
+                const activeHeight = 18 + (speakerPulseLevel * 78 * Math.max(base, centerWeight));
+                return (
+                  <motion.div
+                    key={index}
+                    animate={{
+                      height: isAgentSpeaking ? [`${activeHeight * 0.55}px`, `${activeHeight}px`, `${activeHeight * 0.62}px`] : `${10 + base * 18}px`,
+                      opacity: isAgentSpeaking ? 1 : 0.28,
+                    }}
+                    transition={{ duration: 0.52 + index * 0.03, repeat: Infinity, delay: index * 0.035 }}
+                    className="mx-1 w-2 rounded-full bg-amber-500 shadow-[0_0_22px_rgba(245,158,11,0.72)]"
+                  />
+                );
+              })}
             </div>
           ) : (
             <div className="flex flex-col items-center">
@@ -1408,10 +1491,11 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
         </AnimatePresence>
       </div>
 
-      <div className="mt-8 flex w-full max-w-[460px] items-center justify-center gap-4 rounded-full border border-white/10 bg-black/35 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+      <div className="mt-8 w-full max-w-[430px] overflow-hidden rounded-[2.25rem] border border-white/10 bg-black/35 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+        <div className="grid grid-cols-[52px_52px_minmax(86px,1fr)_52px_52px] items-center justify-items-center gap-2">
         <button
           onClick={() => setIsMuted((prev) => !prev)}
-          className={`h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+          className={`h-12 w-12 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
             isMuted
               ? 'bg-red-500/10 border-red-500/30 text-red-500'
               : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'
@@ -1423,7 +1507,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
         <button
           onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())}
-          className={`h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+          className={`h-12 w-12 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
             visualMode !== 'off'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
               : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
@@ -1433,19 +1517,42 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
           {visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
         </button>
 
-        <div className="mx-2 flex shrink-0 items-center justify-center">
+        <div className="flex shrink-0 items-center justify-center">
           {!isActive ? (
             <button onClick={startSession} disabled={connecting} className="group relative">
-              <div className="absolute -inset-5 rounded-full bg-amber-500/15 blur-2xl opacity-80 transition-all group-hover:bg-amber-500/25" />
-              <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-amber-500/30 bg-[#0A0A0B] shadow-[0_0_55px_rgba(245,158,11,0.18)] transition-all group-hover:border-amber-400/70 active:scale-95">
-                {connecting ? <Loader2 className="h-9 w-9 animate-spin text-amber-500" /> : <Power className="h-9 w-9 text-amber-500" />}
+              <div className="absolute -inset-4 rounded-full bg-amber-500/15 blur-2xl opacity-80 transition-all group-hover:bg-amber-500/25" />
+              <div className="relative flex h-[92px] w-[92px] items-center justify-center overflow-hidden rounded-full border border-amber-500/30 bg-[#0A0A0B] shadow-[0_0_55px_rgba(245,158,11,0.18)] transition-all group-hover:border-amber-400/70 active:scale-95">
+                <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(245,158,11,0.16),transparent_64%)]" />
+                <div className="absolute bottom-5 left-1/2 flex h-5 w-16 -translate-x-1/2 items-end justify-center gap-[2px] overflow-hidden opacity-80">
+                  {[0.32, 0.56, 0.82, 0.64, 0.42, 0.72, 0.48].map((base, index) => (
+                    <motion.span
+                      key={index}
+                      animate={{ height: `${6 + userAudioLevel * base * 18}px`, opacity: isMuted ? 0.2 : 0.95 }}
+                      transition={{ duration: 0.16 }}
+                      className="w-[3px] rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.75)]"
+                    />
+                  ))}
+                </div>
+                <div className="relative z-10 -mt-2">
+                  {connecting ? <Loader2 className="h-9 w-9 animate-spin text-amber-500" /> : <Power className="h-9 w-9 text-amber-500" />}
+                </div>
               </div>
             </button>
           ) : (
             <button onClick={stopSession} className="group relative">
-              <div className="absolute -inset-5 rounded-full bg-red-500/20 blur-2xl opacity-100" />
-              <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-red-500/35 bg-[#0A0A0B] shadow-[0_0_55px_rgba(239,68,68,0.24)] transition-all hover:border-red-500/70 active:scale-95">
-                <Square className="h-7 w-7 fill-current text-red-500" />
+              <div className="absolute -inset-4 rounded-full bg-red-500/20 blur-2xl opacity-100" />
+              <div className="relative flex h-[92px] w-[92px] items-center justify-center overflow-hidden rounded-full border border-red-500/35 bg-[#0A0A0B] shadow-[0_0_55px_rgba(239,68,68,0.24)] transition-all hover:border-red-500/70 active:scale-95">
+                <div className="absolute bottom-5 left-1/2 flex h-5 w-16 -translate-x-1/2 items-end justify-center gap-[2px] overflow-hidden opacity-80">
+                  {[0.32, 0.56, 0.82, 0.64, 0.42, 0.72, 0.48].map((base, index) => (
+                    <motion.span
+                      key={index}
+                      animate={{ height: `${6 + userAudioLevel * base * 18}px`, opacity: isMuted ? 0.2 : 0.95 }}
+                      transition={{ duration: 0.16 }}
+                      className="w-[3px] rounded-full bg-red-400 shadow-[0_0_10px_rgba(248,113,113,0.75)]"
+                    />
+                  ))}
+                </div>
+                <Square className="relative z-10 -mt-2 h-7 w-7 fill-current text-red-500" />
               </div>
             </button>
           )}
@@ -1454,7 +1561,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
         <button
           onClick={switchCamera}
           disabled={visualMode === 'screen'}
-          className="h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="h-12 w-12 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
           title="Switch front/back camera"
         >
           <RotateCcw className="w-5 h-5" />
@@ -1462,7 +1569,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
         <button
           onClick={startScreenShare}
-          className={`h-14 w-14 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+          className={`h-12 w-12 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${
             visualMode === 'screen'
               ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
               : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
@@ -1471,6 +1578,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
         >
           <MonitorUp className="w-5 h-5" />
         </button>
+        </div>
       </div>
 
       {connectionError && (
