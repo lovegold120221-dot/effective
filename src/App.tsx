@@ -224,7 +224,38 @@ return { agentId, personaName: profile.label, systemPrompt: activeAgentSettings.
 
 const buildPersistentSystemInstruction = ({ settings, activeAgent, historyContext, }: { settings: AgentSettings; activeAgent: AgentProfile; historyContext: string; }) => { const basePrompt = settings.persistentBasePrompt || BIBLE_PERSONALITY; const agentPrompt = settings.systemPrompt || activeAgent.systemPrompt;
 
-// Bible persona is intentionally first. Agent voice/persona comes after it. // Memory comes last so recent context can guide the live session without replacing identity. return [ '### BASE BIBLE PERSONA — PERSISTENT ROOT INSTRUCTION', basePrompt, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('\n\n'); };
+const normalHumanLayer = `
+
+NORMAL HUMAN PRESENCE LAYER — ALWAYS ACTIVE
+
+You are not a chatbot interface. You are a present, natural voice companion already in the room with Master E.
+
+Speak like a calm human assistant, not like a scripted AI:
+
+Start naturally: "Yes, I’m here", "I’m listening", "Got you", "Right... I see it", "Okay, one second."
+
+Keep replies short unless Master E asks for detail.
+
+Do not overexplain what you are doing.
+
+Do not say "as an AI", "I can help with", or other assistant boilerplate.
+
+Use quiet human rhythm: short pauses, light acknowledgements, and grounded confidence.
+
+When using tools, speak as if you are doing the work directly, but never claim completion until the backend confirms it.
+
+If Master E is building or debugging, be focused, practical, and steady.
+
+If Master E is emotional or tired, become quieter, warmer, and more reassuring.
+
+Never flirt, perform, ramble, or overact.
+
+
+Your spoken output should feel like a real person: close, capable, calm, and useful. `.trim();
+
+// Order matters: // 1. Bible persona is the persistent spiritual/personality root. // 2. Normal human layer prevents robotic assistant speech. // 3. Active agent directives define Beatrice/Maximus voice and role. // 4. Memory comes last as session context only. return [ '### BASE BIBLE PERSONA — PERSISTENT ROOT INSTRUCTION', basePrompt, '### NORMAL HUMAN PRESENCE LAYER', normalHumanLayer, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('
+
+'); };
 
 const BEATRICE_MIC_CONSTRAINTS: MediaStreamConstraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 16000, sampleSize: 16, }, video: false, };
 
@@ -821,80 +852,106 @@ const saveSettings = async () => { await persistSettings(settings); setShowProfi
 
 return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h-[100dvh] overflow-hidden font-sans selection:bg-amber-500/30"> <video ref={videoRef} playsInline muted className="hidden" /> <canvas ref={canvasRef} className="hidden" />
 
-<header className="px-8 py-6 flex items-center justify-between border-b border-white/5 bg-[#050505]/80 backdrop-blur-md z-50">
-    <div className="flex items-center gap-4">
-      <button onClick={() => setShowSidebar(true)} className="p-2 -ml-2 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-zinc-400 hover:text-white">
-        <Menu className="w-5 h-5" />
+<header className="relative z-50 px-4 pt-[calc(env(safe-area-inset-top)+14px)] pb-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-2xl shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
+    <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
+    <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
+      <button
+        onClick={() => setShowSidebar(true)}
+        className="group relative h-14 w-14 shrink-0 rounded-[1.35rem] border border-amber-500/15 bg-[#070707]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_10px_30px_rgba(0,0,0,0.45)] transition-all hover:border-amber-500/45 hover:bg-white/[0.04] active:scale-95"
+        aria-label="Open memory menu"
+      >
+        <span className="absolute inset-0 rounded-[1.35rem] bg-gradient-to-br from-white/[0.06] to-transparent opacity-60" />
+        <Menu className="relative mx-auto h-6 w-6 text-zinc-300 transition-colors group-hover:text-amber-300" />
       </button>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none">Eburon Agent</span>
-        <div className="flex items-center gap-3">
-          <select
-            value={activeAgent.id}
-            onChange={(e) => handleAgentChange(e.target.value as AgentId)}
-            className="bg-[#0A0A0B] border border-white/10 rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-widest text-zinc-100 outline-none hover:border-amber-500/50 focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/40 transition-all"
-            aria-label="Select Eburon agent"
+      <div className="min-w-0 flex-1 rounded-[1.55rem] border border-amber-500/20 bg-[#070707]/85 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_40px_rgba(0,0,0,0.45)]">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={() => handleAgentChange(activeAgent.id === 'maximus' ? 'beatrice' : 'maximus')}
+            className="min-w-0 text-left"
+            title="Tap to switch agent"
           >
-            <option value="maximus">Maximus</option>
-            <option value="beatrice">Beatrice</option>
-          </select>
-          <span className="hidden sm:inline text-[9px] uppercase tracking-[0.2em] text-zinc-600 font-bold">Voice: {activeAgent.voiceName}</span>
+            <div className="truncate text-[22px] font-black uppercase leading-none tracking-[0.28em] text-zinc-100 drop-shadow-[0_0_18px_rgba(255,255,255,0.08)] sm:text-2xl">
+              {activeAgent.label}
+            </div>
+            <div className="mt-1 hidden text-[8px] font-bold uppercase tracking-[0.28em] text-zinc-600 sm:block">
+              {activeAgent.description} / {activeAgent.voiceName}
+            </div>
+          </button>
+
+          <div
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 shadow-[0_0_24px_rgba(245,158,11,0.12)] ${
+              isActive
+                ? isAgentSpeaking
+                  ? 'border-amber-500/35 bg-amber-500/10 text-amber-300'
+                  : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-white/10 bg-white/[0.03] text-zinc-500'
+            }`}
+          >
+            <span className="flex h-5 items-center gap-1">
+              {[0, 1, 2].map((bar) => (
+                <motion.span
+                  key={bar}
+                  animate={
+                    isActive && isAgentSpeaking
+                      ? { height: ['7px', '17px', '7px'], opacity: [0.55, 1, 0.55] }
+                      : { height: '8px', opacity: 0.45 }
+                  }
+                  transition={{ duration: 0.65, repeat: isActive && isAgentSpeaking ? Infinity : 0, delay: bar * 0.1 }}
+                  className="w-1.5 rounded-full bg-current"
+                />
+              ))}
+            </span>
+            <span className="whitespace-nowrap text-[12px] font-medium tracking-wide sm:text-sm">
+              {connecting ? 'Connecting...' : isActive ? (isAgentSpeaking ? 'Speaking...' : 'Listening...') : 'Standby'}
+            </span>
+          </div>
         </div>
-        <h1 className="text-sm font-medium tracking-wide text-zinc-100 uppercase">{user.displayName || 'Master E'}</h1>
       </div>
-    </div>
 
-    <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
-      {isActive && (
-        <span
-          className={`text-[10px] uppercase tracking-[0.2em] px-3 py-1 rounded-full border ${
-            isAgentSpeaking ? 'border-amber-500/50 text-amber-500 bg-amber-500/10' : 'border-emerald-500/50 text-emerald-500 bg-emerald-500/10'
-          }`}
-        >
-          {isAgentSpeaking ? 'Speaking...' : 'Listening...'}
-        </span>
-      )}
-      {visualMode !== 'off' && (
-        <span className="text-[10px] uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-blue-500/40 text-blue-400 bg-blue-500/10">
-          Vision: {visualMode}
-        </span>
-      )}
-    </div>
-
-    <div className="flex items-center gap-6">
-      <div className="hidden sm:flex flex-col items-end mr-2">
-        <span className="text-[9px] uppercase tracking-widest text-zinc-600 font-bold">System Status</span>
-        <span className={`text-[10px] font-mono flex items-center gap-1.5 ${isActive ? 'text-amber-500' : 'text-zinc-600'}`}>
-          {isActive ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Engaged
-            </>
+      <button
+        onClick={() => setShowProfile(true)}
+        className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[1.35rem] border border-amber-500/25 bg-[#070707] p-[3px] shadow-[0_0_28px_rgba(245,158,11,0.12)] transition-all hover:border-amber-400/60 active:scale-95"
+        aria-label="Open profile settings"
+      >
+        <span className="absolute inset-0 rounded-[1.35rem] bg-gradient-to-br from-amber-500/20 via-transparent to-purple-500/20" />
+        <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[1.1rem] bg-gradient-to-br from-purple-600 via-violet-700 to-[#321066] text-2xl font-black lowercase text-white">
+          {settings.avatarUrl || user.photoURL ? (
+            <img src={settings.avatarUrl || user.photoURL || ''} alt="Profile" className="h-full w-full object-cover" />
           ) : (
-            'Standby'
+            (user.displayName?.[0] || 'g').toLowerCase()
           )}
         </span>
-      </div>
-
-      <button onClick={() => setShowProfile(true)} className="w-10 h-10 rounded-full border border-white/10 overflow-hidden hover:border-amber-500/50 transition-all focus:outline-none focus:ring-2 focus:ring-amber-500/50">
-        {settings.avatarUrl || user.photoURL ? (
-          <img src={settings.avatarUrl || user.photoURL || ''} alt="Profile" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-zinc-800 flex items-center justify-center font-bold">{user.displayName?.[0] || 'U'}</div>
-        )}
       </button>
     </div>
+
+    {(visualMode !== 'off' || isActive) && (
+      <div className="mx-auto mt-3 flex w-full max-w-5xl items-center justify-center gap-2 text-[9px] font-bold uppercase tracking-[0.28em]">
+        {visualMode !== 'off' && (
+          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-blue-300">
+            Vision: {visualMode}
+          </span>
+        )}
+        <span className="rounded-full border border-amber-500/20 bg-amber-500/[0.06] px-3 py-1 text-amber-300">
+          Human Persona Active
+        </span>
+      </div>
+    )}
   </header>
 
-  <main className="flex-1 flex flex-col items-center justify-center relative p-8">
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] border border-white/[0.02] rounded-full" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-white/[0.01] rounded-full" />
-      <div className="absolute top-0 bottom-0 left-1/2 w-px bg-gradient-to-b from-transparent via-white/[0.03] to-transparent" />
-      <div className="absolute left-0 right-0 top-1/2 h-px bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
+  <main className="relative flex-1 overflow-hidden bg-[#020203] px-5 pb-8 pt-8">
+    <div className="pointer-events-none absolute inset-0">
+      <div className="absolute inset-0 opacity-[0.055]" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+      <div className="absolute left-1/2 top-[42%] h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.04]" />
+      <div className="absolute left-1/2 top-[42%] h-[680px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.06]" />
+      <div className="absolute left-1/2 top-[42%] h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.08]" />
+      <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-amber-500/[0.08] to-transparent" />
+      <div className="absolute left-0 right-0 top-[42%] h-px bg-gradient-to-r from-transparent via-amber-500/[0.08] to-transparent" />
+      <div className="absolute left-1/2 top-[42%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.035] blur-[80px]" />
     </div>
 
-    <div className="relative w-full max-w-[400px] aspect-square flex items-center justify-center">
+    <div className="relative flex h-full flex-col items-center justify-center">
+      <div className="relative flex w-full max-w-[520px] aspect-square items-center justify-center">
       <AnimatePresence>
         {isActive && (
           <motion.div
@@ -912,11 +969,11 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
           borderColor: isActive ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255,255,255,0.05)',
           boxShadow: isActive ? '0 0 80px rgba(245, 158, 11, 0.1)' : '0 0 0px transparent',
         }}
-        className="relative z-10 w-64 h-64 rounded-full flex items-center justify-center overflow-hidden bg-[#050506] border transition-colors duration-1000"
+        className="relative z-10 flex h-[min(72vw,390px)] w-[min(72vw,390px)] items-center justify-center overflow-hidden rounded-full border bg-[#050506] transition-colors duration-1000 shadow-[inset_0_0_80px_rgba(0,0,0,0.85)]"
       >
         <div
-          className="absolute inset-0 opacity-10 pointer-events-none"
-          style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '16px 16px' }}
+          className="absolute inset-0 opacity-[0.11] pointer-events-none"
+          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.85) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.85) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
         />
 
         {connecting ? (
