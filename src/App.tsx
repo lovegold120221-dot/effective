@@ -540,7 +540,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
     const apiKey = getGeminiApiKey();
     if (apiKey) aiRef.current = new GoogleGenAI({ apiKey });
-    else setConnectionError('Missing Gemini API key. Add VITE_GEMINI_API_KEY in Vercel or your local .env file.');
+    else setConnectionError('Eburon AI is Updating');
 
     audioStreamerRef.current = new AudioStreamer();
 
@@ -998,7 +998,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
   const startSession = async () => {
     if (!aiRef.current) {
-      setConnectionError('Gemini Live client is not ready. Check VITE_GEMINI_API_KEY and rebuild.');
+      setConnectionError('Eburon AI is Updating');
       return;
     }
 
@@ -1265,7 +1265,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
       console.error(err);
-      setConnectionError(err?.message || 'Gemini Live session failed to start.');
+      setConnectionError('Eburon AI is Updating');
       setConnecting(false);
       stopSession();
     }
