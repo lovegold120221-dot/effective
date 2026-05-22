@@ -253,7 +253,7 @@ Never flirt, perform, ramble, or overact.
 
 Your spoken output should feel like a real person: close, capable, calm, and useful. `.trim();
 
-// Order matters: // 1. Bible persona is the persistent spiritual/personality root. // 2. Normal human layer prevents robotic assistant speech. // 3. Active agent directives define Beatrice/Maximus voice and role. // 4. Memory comes last as session context only. return [ '### BASE BIBLE PERSONA — PERSISTENT ROOT INSTRUCTION', basePrompt, '### NORMAL HUMAN PRESENCE LAYER', normalHumanLayer, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('
+return [ '### BASE BIBLE PERSONA — PERSISTENT ROOT INSTRUCTION', basePrompt, '### NORMAL HUMAN PRESENCE LAYER', normalHumanLayer, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('
 
 '); };
 
