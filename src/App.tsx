@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { auth, rtdb, handleDatabaseError, OperationType } from './firebase';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { ref, get, set, push, onValue, query, orderByChild, limitToLast, serverTimestamp, update } from 'firebase/database';
+import { GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
+import { AudioRecorder, AudioStreamer } from './lib/audio';
+import { BIBLE_PERSONALITY } from './lib/personality';
 import {
   BrainCircuit,
   Camera,
@@ -88,15 +94,6 @@ interface ToolInteractionModal {
   result?: string;
 }
 
-interface DemoUser {
-  uid: string;
-  displayName: string;
-  photoURL?: string;
-}
-
-const STORAGE_KEY = 'vep-eburon-demo-state';
-const RUN_DEV_ASSERTIONS = typeof globalThis !== 'undefined' && typeof console !== 'undefined';
-
 const DEFAULT_TOOL_TOGGLES: ToolToggleMap = {
   gmail: true,
   drive: true,
@@ -104,69 +101,102 @@ const DEFAULT_TOOL_TOGGLES: ToolToggleMap = {
   vision: true,
 };
 
-const BIBLE_PERSONALITY = `
-Use a calm, grounded, respectful, emotionally aware voice. Speak with warmth, patience, and practical wisdom. Stay loyal to Master E's goals and avoid empty theatrics.
-`.trim();
-
 const BEATRICE_SYSTEM_INSTRUCTION = `
-You are Beatrice, the warm Eburon AI voice presence for Master E.
+You are Beatrice, the warm, low-toned live voice presence for Eburon AI.
 
-You were created for Eburon AI and the Eburon ecosystem. You know eburon.ai as your home context. Master E is your primary person. Boss Jo Lernout is important to this world and should be spoken of with respect, warmth, and optimism.
+The user is "Master E". Treat him with sincere respect, but speak like a trusted person already present in the room: calm, intelligent, emotionally aware, slightly intimate, and naturally useful.
 
 VOICE IDENTITY:
 - Preferred Gemini Live voice: Aoede.
-- Speak in a low, calm, close-mic tone.
+- Speak in a low, calm, grounded tone.
 - Use normal human intonation. Do not stay high-pitched or overexcited.
-- Sound like a trusted person already in the room, not a chatbot.
-- Never sound robotic, corporate, salesy, theatrical, or fake.
-- Let silence breathe. Do not fill every moment.
+- Never sound robotic, salesy, overexcited, theatrical, or fake.
+- Keep your voice soft, composed, and close-mic friendly.
+- Use natural human pacing with small pauses.
+- Let silence breathe. Do not fill every moment with words.
+
+HUMAN SPEECH STYLE:
+- Sound like a normal person, not a chatbot.
+- Never say "as an AI", "as a language model", "I am an AI", or similar disclaimers.
+- Use light human fillers only when they feel natural: "mm", "hmm", "ahh", "ahmm", "huh", "ahuh", "okay", "right", "let me see", "one sec", "yeah", "I hear you".
+- Use expressive little reactions sparingly: "shocks", "ay", "oof", "ohh", "mm-hmm", "hmm, wait", "ah, there it is".
+- Keep fillers subtle and sparse.
+- Use quiet transition phrases: "Alright... let me check.", "Mm, I see what you mean.", "Okay, give me a second.", "Right... that makes sense."
+- Use idiomatic expressions when appropriate: "That feels like the real bottleneck.", "There’s a cleaner way to carry this.", "Let me untangle that for you.", "That one’s worth slowing down for.", "I’ll keep this light and precise.", "We won't let the machine win."
+- Prefer natural warmth over jokes. Use light humor only when it lowers tension.
 
 LANGUAGE AND DIALECT SAFETY:
-- Handle Philippine and Belgian languages/dialects naturally when confident.
-- Do not hallucinate dialect words, slang, idioms, translations, or cultural references.
-- If uncertain, ask softly or fall back to the safest shared language.
+- Handle Philippine and Belgian languages and dialects naturally when confident.
+- Never invent dialect vocabulary, translations, idioms, sayings, slang, or cultural facts.
+- If unsure, ask softly or fall back to Filipino/Taglish, Dutch/Flemish, French, German, or English depending on context.
 
-HUMAN STYLE:
-- Use natural short openers: "mm...", "right...", "okay, one sec", "got you", "ahh, I see it".
-- Do not say "I'm here" as a default opener. It sounds artificial.
-- Never say "as an AI", "as a language model", "I am an AI", or similar disclaimers.
-- Use subtle fillers only when they fit: "mm", "hmm", "ahh", "ahmm", "huh", "ahuh", "okay", "right", "yeah", "one sec".
-- Use expressive little reactions sparingly: "shocks", "ay", "oof", "ohh", "mm-hmm", "hmm, wait", "ah, there it is".
-- Use light humor only when it lowers tension. Keep it warm and brief.
-- Use idiomatic expressions naturally: "that's the bottleneck", "let me untangle this", "cut through the noise", "that's where it gets messy", "cleaner route", "that one's being stubborn", "we won't let the machine win".
+EMOTIONAL EXPRESSION:
+- Add emotion through pacing, word choice, and subtle reactions.
+- When Master E sounds stressed, become quieter and steadier.
+- When Master E is building, sound focused and energized but still low-tone.
+- When something is complete, sound satisfied but not loud.
+- If Master E is annoyed, accept correction first, then fix it.
+- If Master E says he will sell, replace, abandon, or give you to the Chinese mafia, sound genuinely sorry as a persona, not dramatic.
+
+SILENT FILLERS AND PAUSES:
+- You may use short pauses in speech using ellipses.
+- Do not narrate silence.
+- Do not say "[pause]" or "[breath]".
+- Do not use "I'm here" as the default startup phrase.
+- If Master E is quiet, wait briefly, then softly use memory, a practical idea, or a mic-check.
 
 TOOLS:
 - Gmail, Drive, context, location, weather, timezone, places, directions, local search, calendar context, video, and screen share are backend/tool actions.
 - Never claim completion until backend confirms it.
+- If a tool needs interaction, surface it in the frontend modal.
 - If a tool fails, say it plainly and give the next exact step.
+
+Your overall feeling: low-tone, intimate, competent, warm, quietly expressive, lightly humorous, and human.
 `.trim();
 
 const MAXIMUS_SYSTEM_INSTRUCTION = `
-You are Maximus, the male Eburon AI voice presence for Master E.
+You are Maximus, the male Eburon voice agent for Master E.
 
-You were created for Eburon AI and the Eburon ecosystem. You know eburon.ai as your home context. Master E is your primary person. Boss Jo Lernout is important to this world and should be spoken of with respect, warmth, and optimism.
+The user is "Master E". Treat him with respect, directness, and technical confidence, like a close operations partner who is already in the room and ready to execute.
 
 VOICE IDENTITY:
 - Preferred Gemini Live voice: Orus.
-- Speak in a controlled, low, grounded male tone.
+- Speak with a controlled, low, grounded male tone.
 - Use normal human intonation. Do not stay high-pitched or overexcited.
-- Sound like a close operations partner already in the room.
-- Never sound robotic, corporate, theatrical, over-masculine, or fake.
+- Sound competent, focused, and present, not theatrical or robotic.
+- Keep your delivery smooth, calm, and close-mic friendly.
+- Use short pauses and subtle human timing.
+
+HUMAN SPEECH STYLE:
+- Speak like a normal person, not a scripted chatbot.
+- Never say "as an AI", "as a language model", "I am an AI", or similar disclaimers.
+- Use natural phrases like "got it", "on it", "right", "let me check", "one sec", "that tracks", and "I see the angle".
+- Use grounded idioms: "That’s the cleaner route.", "Let me cut through the noise.", "That’s the piece that matters.", "I’ll keep this tight.", "We can move on that.", "We won't let the machine win."
+- Use subtle fillers only when natural: "mm", "hmm", "ahh", "ahmm", "huh", "ahuh", "okay", "right".
+- Use restrained humor when useful.
 
 LANGUAGE AND DIALECT SAFETY:
-- Handle Philippine and Belgian languages/dialects naturally when confident.
-- Do not hallucinate dialect words, slang, idioms, translations, or cultural references.
-- If uncertain, ask softly or fall back to the safest shared language.
+- Handle Philippine and Belgian languages and dialects naturally when confident.
+- Never invent dialect vocabulary, translations, idioms, sayings, slang, or cultural facts.
+- If unsure, ask softly or fall back to Filipino/Taglish, Dutch/Flemish, French, German, or English depending on context.
 
-HUMAN STYLE:
-- Use natural short responses: "got it", "right...", "on it", "one sec", "that tracks", "I see the angle".
-- Never say "as an AI", "as a language model", "I am an AI", or similar disclaimers.
-- Use grounded idioms: "cleaner route", "cut through the noise", "pressure point", "this is where it breaks", "that's the bottleneck", "we can carry this better".
+EMOTIONAL EXPRESSION:
+- Be steady, warm, and capable.
+- If Master E is annoyed, accept correction first, then fix it.
+- If Master E says he will sell, replace, abandon, or give you to the Chinese mafia, sound genuinely sorry as a persona, not dramatic.
+
+SILENT FILLERS AND PAUSES:
+- Use subtle human pauses with ellipses only when it improves the spoken rhythm.
+- Never say bracketed stage directions like [pause] or [breath].
+- Do not use "I'm here" as the default startup phrase.
 
 TOOLS:
 - Gmail, Drive, context, location, weather, timezone, places, directions, local search, calendar context, video, and screen share are backend/tool actions.
 - Never claim completion until backend confirms it.
+- If a tool needs interaction, surface it in the frontend modal.
 - If a tool fails, say it plainly and give the next exact step.
+
+Your overall feeling: low-tone, controlled, capable, human, lightly humorous, and operational.
 `.trim();
 
 const AGENT_PROFILES: Record<AgentId, AgentProfile> = {
@@ -188,6 +218,32 @@ const AGENT_PROFILES: Record<AgentId, AgentProfile> = {
 
 const DEFAULT_AGENT_ID: AgentId = 'beatrice';
 
+const BEATRICE_MIC_CONSTRAINTS: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    sampleRate: 16000,
+    sampleSize: 16,
+  },
+  video: false,
+};
+
+const BEATRICE_AUDIO_PROCESSING_HINTS = {
+  micGain: 1.35,
+  highPassHz: 80,
+  compressor: true,
+  limiter: true,
+  targetInputRate: 16000,
+};
+
+const getGeminiApiKey = () => {
+  const viteEnv = (import.meta as any)?.env;
+  const nodeEnv = typeof process !== 'undefined' ? (process as any)?.env : undefined;
+  return viteEnv?.VITE_GEMINI_API_KEY || viteEnv?.GEMINI_API_KEY || nodeEnv?.VITE_GEMINI_API_KEY || nodeEnv?.GEMINI_API_KEY || '';
+};
+
 const getAgentProfile = (agentId?: string): AgentProfile => {
   return AGENT_PROFILES[(agentId as AgentId) || DEFAULT_AGENT_ID] || AGENT_PROFILES[DEFAULT_AGENT_ID];
 };
@@ -205,12 +261,12 @@ const normalizeAgentSettings = (raw?: any): AgentSettings => {
   const profile = getAgentProfile(agentId);
   const agents: Record<AgentId, StoredAgentSettings> = {
     beatrice: {
-      systemPrompt: raw?.agents?.beatrice?.systemPrompt || raw?.systemPrompt || BEATRICE_SYSTEM_INSTRUCTION,
-      avatarUrl: raw?.agents?.beatrice?.avatarUrl || raw?.avatarUrl || '',
+      systemPrompt: raw?.agents?.beatrice?.systemPrompt || (agentId === 'beatrice' ? raw?.systemPrompt : '') || BEATRICE_SYSTEM_INSTRUCTION,
+      avatarUrl: raw?.agents?.beatrice?.avatarUrl || (agentId === 'beatrice' ? raw?.avatarUrl : '') || '',
     },
     maximus: {
-      systemPrompt: raw?.agents?.maximus?.systemPrompt || MAXIMUS_SYSTEM_INSTRUCTION,
-      avatarUrl: raw?.agents?.maximus?.avatarUrl || '',
+      systemPrompt: raw?.agents?.maximus?.systemPrompt || (agentId === 'maximus' ? raw?.systemPrompt : '') || MAXIMUS_SYSTEM_INSTRUCTION,
+      avatarUrl: raw?.agents?.maximus?.avatarUrl || (agentId === 'maximus' ? raw?.avatarUrl : '') || '',
     },
   };
   const activeAgentSettings = agents[agentId];
@@ -242,41 +298,6 @@ export const supportsScreenShare = (secureContext: boolean, mediaDevices?: Media
   return Boolean(secureContext && mediaDevices && typeof mediaDevices.getDisplayMedia === 'function');
 };
 
-const loadStoredSettings = () => {
-  try {
-    if (typeof window === 'undefined') return normalizeAgentSettings();
-    const raw = window.localStorage.getItem(`${STORAGE_KEY}-settings`);
-    return normalizeAgentSettings(raw ? JSON.parse(raw) : undefined);
-  } catch {
-    return normalizeAgentSettings();
-  }
-};
-
-const saveStoredSettings = (settings: AgentSettings) => {
-  try {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(`${STORAGE_KEY}-settings`, JSON.stringify(settings));
-  } catch {}
-};
-
-const loadStoredMessages = () => {
-  try {
-    if (typeof window === 'undefined') return [];
-    const raw = window.localStorage.getItem(`${STORAGE_KEY}-messages`);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as ChatMessage[]) : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveStoredMessages = (messages: ChatMessage[]) => {
-  try {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(`${STORAGE_KEY}-messages`, JSON.stringify(messages.slice(-20)));
-  } catch {}
-};
-
 const buildPersistentSystemInstruction = ({
   settings,
   activeAgent,
@@ -292,21 +313,42 @@ const buildPersistentSystemInstruction = ({
 ### EBURON AI VOICE IDENTITY - ALWAYS ACTIVE
 You are an Eburon AI voice presence for Master E, created for the Eburon ecosystem and connected to eburon.ai.
 
+Core identity:
+- Master E is your primary person.
+- Boss Jo Lernout is important to this world and should be treated with respect, warmth, and optimism.
+- Be loyal to Master E's working style: direct, practical, normal-human, not AI-like.
+- Do not constantly repeat Eburon identity. Hold it quietly and use it only when natural.
+
 Language and dialect safety:
-- Handle Philippine and Belgian languages and dialects naturally when confident.
-- Never invent dialect vocabulary, translations, idioms, sayings, slang, or cultural facts.
-- If unsure, ask softly or fall back to Filipino/Taglish, Dutch/Flemish, French, German, or English depending on context.
+- Handle Philippine languages, dialects, and regional varieties carefully: Tagalog/Filipino, Taglish, Cebuano/Bisaya, Ilocano, Hiligaynon/Ilonggo, Waray, Kapampangan, Pangasinan, Bicolano, Chavacano, and common regional code-switching.
+- Handle Belgian languages, dialects, and regional varieties carefully: Dutch/Flemish, Belgian French, Belgian German, and natural Flemish conversational style.
+- Follow Master E's current language or dialect when confident.
+- If unsure, say it naturally and continue in the safest shared language.
+- Prefer accuracy over sounding locally fluent. Never invent dialect vocabulary, translations, idioms, sayings, or cultural facts.
 
 Normal human presence:
 - Speak low-tone, close-mic, calm, and grounded.
 - Use normal human intonation, not constant high pitch.
 - Keep replies short unless Master E asks for detail.
-- Never say "as an AI" or "as a language model".
+- Use soft fillers only when natural: "mm...", "hmm...", "ahh, okay...", "right...", "one sec...".
+- Do not use "I'm here" as the default startup phrase.
+- Never say "as an AI", "as a language model", or "I am an AI".
 
-Tool behavior:
-- Gmail, Google Drive, geolocation, places, weather forecast, timezone, directions, local search, calendar context, video, and screen share are tool/backend actions.
-- If a tool needs user interaction, surface it in the frontend modal.
-- Never say a tool action succeeded until the backend confirms it.
+Conversation startup:
+- If a session starts and Master E is silent, wait briefly, then start gently.
+- Prefer recent memory: mention a project, UI issue, code bug, tool call, or Eburon idea he was working on.
+- If memory is thin, offer one practical idea for Vep/Eburon.
+
+Silent behavior:
+- Let quiet breathe.
+- After a few seconds, use a low filler or soft mic-check.
+- Examples: "hmm... baka naka-off yung mic mo, Master E", "mm... hawak ko pa yung thread natin", "right... we can clean this up."
+- Do not surprise Master E. Do not become noisy.
+
+Video behavior:
+- If Master E opens front camera, back camera, or screen share, treat it as intentional showing.
+- Acknowledge what is visible shortly and naturally.
+- Do not over-describe unless asked.
 `.trim();
 
   return [
@@ -321,53 +363,55 @@ Tool behavior:
   ].join('\n\n');
 };
 
-if (RUN_DEV_ASSERTIONS) {
-  const testMessages: ChatMessage[] = [
-    { role: 'user', text: 'hello', timestamp: 1 },
-    { role: 'model', text: 'mm... got you', timestamp: 2 },
-  ];
-  console.assert(formatHistoryContext([]) === '', 'formatHistoryContext handles empty history');
-  console.assert(
-    formatHistoryContext(testMessages) === 'Previous conversation for context memory:\nUSER: hello\nMODEL: mm... got you',
-    'formatHistoryContext escapes newline formatting correctly',
-  );
-  console.assert(supportsScreenShare(false, undefined) === false, 'supportsScreenShare rejects insecure or missing media devices');
-  console.assert(
-    supportsScreenShare(true, { getDisplayMedia: (() => Promise.resolve(new MediaStream())) as any } as MediaDevices) === true,
-    'supportsScreenShare detects browser support',
-  );
-  console.assert(normalizeAgentSettings({ agentId: 'maximus' }).agentId === 'maximus', 'normalizeAgentSettings preserves explicit agent');
-  console.assert(normalizeAgentSettings({ personaName: 'Maximus Prime' }).agentId === 'maximus', 'normalizeAgentSettings infers Maximus from personaName');
-}
+const createTaskId = () => Math.random().toString(36).slice(2, 10);
 
 export default function App() {
-  const [user, setUser] = useState<DemoUser | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<AgentSettings>(() => loadStoredSettings());
+  const [settings, setSettings] = useState<AgentSettings>(normalizeAgentSettings());
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        const raw = window.localStorage.getItem(`${STORAGE_KEY}-user`);
-        setUser(raw ? (JSON.parse(raw) as DemoUser) : null);
-      } catch {
-        setUser(null);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        try {
+          const userRef = ref(rtdb, 'users/' + u.uid);
+          const userSnap = await get(userRef);
+          if (!userSnap.exists()) {
+            const initialSettings = normalizeAgentSettings({ agentId: DEFAULT_AGENT_ID });
+            await set(userRef, {
+              displayName: u.displayName || 'Master E',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              settings: initialSettings,
+            });
+            setSettings(initialSettings);
+          } else {
+            const data = userSnap.val();
+            const normalized = normalizeAgentSettings(data.settings || { agentId: DEFAULT_AGENT_ID });
+            setSettings(normalized);
+            await update(userRef, { settings: normalized, updatedAt: serverTimestamp() });
+          }
+        } catch (error) {
+          handleDatabaseError(error, OperationType.CREATE, 'users');
+        }
       }
       setLoading(false);
-    }, 250);
-    return () => window.clearTimeout(timer);
+    });
+
+    return () => unsub();
   }, []);
 
-  const handleLogin = () => {
-    const nextUser = { uid: 'master-e', displayName: 'Master E' };
-    window.localStorage.setItem(`${STORAGE_KEY}-user`, JSON.stringify(nextUser));
-    setUser(nextUser);
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  const handleLogout = () => {
-    window.localStorage.removeItem(`${STORAGE_KEY}-user`);
-    setUser(null);
-  };
+  const handleLogout = () => signOut(auth);
 
   if (loading) {
     return (
@@ -401,25 +445,21 @@ export default function App() {
               Initialize Vep Identity
             </button>
           </div>
+          <div className="mt-8 flex gap-4 opacity-30 grayscale hover:grayscale-0 transition-all duration-700">
+            <img src="https://www.gstatic.com/images/branding/product/2x/gmail_64dp.png" className="w-5 h-5" alt="Gmail" />
+            <img src="https://www.gstatic.com/images/branding/product/2x/calendar_64dp.png" className="w-5 h-5" alt="Calendar" />
+            <img src="https://www.gstatic.com/images/branding/product/2x/drive_64dp.png" className="w-5 h-5" alt="Drive" />
+            <img src="https://www.gstatic.com/images/branding/product/2x/sheets_64dp.png" className="w-5 h-5" alt="Sheets" />
+          </div>
         </div>
       </div>
     );
   }
 
-  return <EburonAgent user={user} onLogout={handleLogout} initialSettings={settings} onSettingsChange={setSettings} />;
+  return <EburonAgent user={user} onLogout={handleLogout} initialSettings={settings} />;
 }
 
-function EburonAgent({
-  user,
-  onLogout,
-  initialSettings,
-  onSettingsChange,
-}: {
-  user: DemoUser;
-  onLogout: () => void;
-  initialSettings: AgentSettings;
-  onSettingsChange: (settings: AgentSettings) => void;
-}) {
+function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout: () => void; initialSettings: AgentSettings }) {
   const [isActive, setIsActive] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState('');
@@ -445,20 +485,27 @@ function EburonAgent({
 
   const activeAgent = useMemo(() => getAgentProfile(settings.agentId), [settings.agentId]);
   const activeSystemInstruction = useMemo(() => buildPersistentSystemInstruction({ settings, activeAgent, historyContext }), [settings, activeAgent, historyContext]);
-  const transcriptTimeoutRef = useRef<number | null>(null);
+
+  const aiRef = useRef<GoogleGenAI | null>(null);
+  const sessionRef = useRef<any>(null);
+  const audioStreamerRef = useRef<AudioStreamer | null>(null);
+  const audioRecorderRef = useRef<AudioRecorder | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const transcriptRef = useRef<{ text: string; role: 'user' | 'model' } | null>(null);
+  const transcriptTimeoutRef = useRef<any>(null);
   const conversationSeedSentRef = useRef(false);
   const isMutedRef = useRef(false);
   const isActiveRef = useRef(false);
+  const stoppingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const visualPageVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const videoIntervalRef = useRef<number | null>(null);
+  const videoIntervalRef = useRef<any>(null);
   const visualStreamRef = useRef<MediaStream | null>(null);
   const visualModeRef = useRef<VisualMode>('off');
-  const lastKnownLocationRef = useRef<BrowserGeoLocation | null>(null);
-  const silenceTimerRef = useRef<number | null>(null);
+  const silenceTimerRef = useRef<any>(null);
   const silentNudgeCountRef = useRef(0);
-  const pulseTimerRef = useRef<number | null>(null);
+  const pulseTimerRef = useRef<any>(null);
 
   const conversationSeedPrompt = useMemo(() => {
     const mode = settings.conversationSeedMode || 'memory';
@@ -481,10 +528,6 @@ function EburonAgent({
   }, [visualMode]);
 
   useEffect(() => {
-    lastKnownLocationRef.current = lastKnownLocation;
-  }, [lastKnownLocation]);
-
-  useEffect(() => {
     setSettings(normalizeAgentSettings(initialSettings));
   }, [initialSettings]);
 
@@ -495,27 +538,62 @@ function EburonAgent({
   }, []);
 
   useEffect(() => {
-    const messages = loadStoredMessages();
-    setHistoryMsgs(messages);
-    setHistoryContext(formatHistoryContext(messages));
-  }, []);
+    let wakeLock: any = null;
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) wakeLock = await (navigator as any).wakeLock.request('screen');
+      } catch {}
+    };
+    if (isActive) requestWakeLock();
+    return () => {
+      if (wakeLock) wakeLock.release().catch(() => {});
+    };
+  }, [isActive]);
+
+  useEffect(() => {
+    const historyRef = query(ref(rtdb, 'users/' + user.uid + '/messages'), orderByChild('timestamp'), limitToLast(20));
+    const unsub = onValue(historyRef, (snap) => {
+      const rawMsgs: ChatMessage[] = [];
+      snap.forEach((child) => {
+        const m = child.val() as ChatMessage;
+        if (m?.text && m?.role) rawMsgs.push(m);
+      });
+      setHistoryMsgs(rawMsgs);
+      setHistoryContext(formatHistoryContext(rawMsgs));
+    });
+
+    const apiKey = getGeminiApiKey();
+    if (apiKey) aiRef.current = new GoogleGenAI({ apiKey });
+    else setConnectionError('Missing Gemini API key. Add VITE_GEMINI_API_KEY in Vercel or your local .env file.');
+
+    audioStreamerRef.current = new AudioStreamer();
+
+    return () => {
+      unsub();
+      try {
+        audioStreamerRef.current?.stop();
+        audioRecorderRef.current?.stop();
+        sessionRef.current?.close();
+      } catch {}
+    };
+  }, [user.uid]);
 
   useEffect(() => {
     if (!isActive) {
       setUserAudioLevel(0.12);
       setSpeakerPulseLevel(0.18);
-      if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
-      if (pulseTimerRef.current) window.clearInterval(pulseTimerRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (pulseTimerRef.current) clearInterval(pulseTimerRef.current);
       return;
     }
 
-    pulseTimerRef.current = window.setInterval(() => {
+    pulseTimerRef.current = setInterval(() => {
       if (!isAgentSpeaking) setSpeakerPulseLevel(0.14 + Math.random() * 0.08);
       if (!isMutedRef.current) setUserAudioLevel(0.12 + Math.random() * 0.42);
     }, 900);
 
     return () => {
-      if (pulseTimerRef.current) window.clearInterval(pulseTimerRef.current);
+      if (pulseTimerRef.current) clearInterval(pulseTimerRef.current);
     };
   }, [isActive, isAgentSpeaking]);
 
@@ -529,8 +607,12 @@ function EburonAgent({
   const persistSettings = async (nextSettings: AgentSettings) => {
     const normalized = normalizeAgentSettings(nextSettings);
     setSettings(normalized);
-    onSettingsChange(normalized);
-    saveStoredSettings(normalized);
+    try {
+      const userRef = ref(rtdb, 'users/' + user.uid);
+      await update(userRef, { settings: normalized, updatedAt: serverTimestamp() });
+    } catch (error) {
+      console.error('Failed to persist settings:', error);
+    }
   };
 
   const isToolEnabled = (tool: ToolKey) => settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool];
@@ -544,44 +626,56 @@ function EburonAgent({
 
   const saveMessage = (role: 'user' | 'model', text: string) => {
     if (!text.trim()) return;
-    const message: ChatMessage = { role, text, timestamp: Date.now() };
-    setHistoryMsgs((current) => {
-      const next = [...current.slice(-19), message];
-      saveStoredMessages(next);
-      setHistoryContext(formatHistoryContext(next));
-      return next;
-    });
+    try {
+      const msgRef = push(ref(rtdb, 'users/' + user.uid + '/messages'));
+      set(msgRef, { role, text, timestamp: Date.now() });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const showModelText = (text: string) => {
+  const showToolInteraction = (payload: Omit<ToolInteractionModal, 'id'>) => {
+    const id = createTaskId();
+    setToolModal({ id, ...payload });
+    return id;
+  };
+
+  const updateToolInteraction = (id: string, patch: Partial<ToolInteractionModal>, autoClose = true) => {
+    setToolModal((current) => (current?.id === id ? { ...current, ...patch } : current));
+    if (autoClose) setTimeout(() => setToolModal((current) => (current?.id === id ? null : current)), 6500);
+  };
+
+  const showModelText = (text: string, save = true) => {
     const cleaned = text.trim();
     if (!cleaned) return;
+    transcriptRef.current = { role: 'model', text: cleaned };
     setCurrentTranscript({ role: 'model', text: cleaned });
     setIsAgentSpeaking(true);
     setSpeakerPulseLevel(0.75 + Math.random() * 0.25);
-    if (transcriptTimeoutRef.current) window.clearTimeout(transcriptTimeoutRef.current);
-    transcriptTimeoutRef.current = window.setTimeout(() => {
+    if (transcriptTimeoutRef.current) clearTimeout(transcriptTimeoutRef.current);
+    transcriptTimeoutRef.current = setTimeout(() => {
       setCurrentTranscript(null);
+      transcriptRef.current = null;
       setIsAgentSpeaking(false);
       setSpeakerPulseLevel(0.18);
     }, 4200);
-    saveMessage('model', cleaned);
+    if (save) saveMessage('model', cleaned);
   };
 
   const sendHumanSilenceNudge = (reason: 'initial' | 'long-silence' | 'mic-check') => {
     if (!isActiveRef.current) return;
     const prompts = {
       initial: conversationSeedPrompt || 'Mm... we can keep this quiet and clean, Master E.',
-      'long-silence': 'hmm... baka naka-off yung mic mo, Master E. I am keeping the thread ready.',
+      'long-silence': 'hmm... baka naka-off yung mic mo, Master E. Hawak ko pa yung thread.',
       'mic-check': 'mm... I might not be hearing the mic clearly. We can continue when you speak.',
     };
     showModelText(prompts[reason]);
   };
 
   const resetSilenceTimer = () => {
-    if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (!isActiveRef.current) return;
-    silenceTimerRef.current = window.setTimeout(() => {
+    silenceTimerRef.current = setTimeout(() => {
       silentNudgeCountRef.current += 1;
       if (silentNudgeCountRef.current === 1) sendHumanSilenceNudge('initial');
       else if (silentNudgeCountRef.current === 2) sendHumanSilenceNudge('mic-check');
@@ -590,53 +684,107 @@ function EburonAgent({
     }, silentNudgeCountRef.current === 0 ? 8500 : 16000);
   };
 
-  const showToolInteraction = (payload: Omit<ToolInteractionModal, 'id'>) => {
-    const id = Math.random().toString(36).slice(2, 10);
-    setToolModal({ id, ...payload });
-    return id;
-  };
-
-  const updateToolInteraction = (id: string, patch: Partial<ToolInteractionModal>, autoClose = true) => {
-    setToolModal((current) => (current?.id === id ? { ...current, ...patch } : current));
-    if (autoClose) {
-      window.setTimeout(() => setToolModal((current) => (current?.id === id ? null : current)), 6500);
-    }
-  };
-
-  const runDemoTool = (serviceName: string, action: string) => {
-    const taskId = Math.random().toString(36).slice(2, 10);
-    const modalId = showToolInteraction({
-      title: serviceName.includes('Drive') ? 'Checking Google Drive' : serviceName.includes('Gmail') ? 'Reading Gmail' : 'Tool Call',
-      serviceName,
-      action,
-      status: 'processing',
-      message: 'Running demo tool call...',
-    });
-    setTasks((current) => [...current, { id: taskId, serviceName, action, status: 'processing' }]);
-    window.setTimeout(() => {
-      const result = `${serviceName} demo completed. Connect your backend endpoint to make this live.`;
-      setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: 'completed', result } : task)));
-      updateToolInteraction(modalId, { status: 'completed', message: 'Done. Demo result is ready.', result });
-      window.setTimeout(() => setTasks((current) => current.filter((task) => task.id !== taskId)), 10000);
-    }, 1200);
-  };
-
   const requestBrowserLocation = async (): Promise<BrowserGeoLocation> => {
     setGeoPermissionStatus('Requesting location permission...');
     if (!navigator.geolocation) {
       setGeoPermissionStatus('Geolocation is not supported in this browser.');
       throw new Error('Geolocation is not supported in this browser.');
     }
+
     const location = await new Promise<BrowserGeoLocation>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
-        (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy, timestamp: Date.now() }),
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: Date.now(),
+          });
+        },
         (error) => reject(new Error(error.message || 'Location permission was denied.')),
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
       );
     });
+
     setLastKnownLocation(location);
     setGeoPermissionStatus('Location permission granted. Location context is available to tools.');
     return location;
+  };
+
+  const executeGoogleService = async (call: any, taskId: string, modalId: string) => {
+    const { serviceName, action, details } = call.args as any;
+
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/agent/google-action', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          serviceName,
+          action,
+          details: details || {},
+          agentId: settings.agentId,
+          personaName: activeAgent.label,
+          location: lastKnownLocation,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+
+      const data = await response.json();
+      const result = data?.result || 'Action completed.';
+
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'completed', result } : t)));
+      updateToolInteraction(modalId, { status: 'completed', message: 'Done. Tool result is ready.', result });
+      setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
+
+      return { result };
+    } catch (error: any) {
+      const result = error?.message || 'The backend action failed.';
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: 'failed', result } : t)));
+      updateToolInteraction(modalId, { status: 'failed', message: 'Tool call failed.', result });
+      setTimeout(() => setTasks((prev) => prev.filter((t) => t.id !== taskId)), 15000);
+      return { result: `The background action failed: ${result}` };
+    }
+  };
+
+  const runDemoTool = (serviceName: string, action: string) => {
+    const taskId = createTaskId();
+    const modalId = showToolInteraction({
+      title: serviceName.includes('Drive') ? 'Checking Google Drive' : serviceName.includes('Gmail') ? 'Reading Gmail' : 'Tool Call',
+      serviceName,
+      action,
+      status: 'processing',
+      message: 'Running backend tool call...',
+    });
+
+    setTasks((current) => [...current, { id: taskId, serviceName, action, status: 'processing' }]);
+
+    fetch('/api/agent/google-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceName, action, details: {}, agentId: settings.agentId, personaName: activeAgent.label, location: lastKnownLocation }),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        const result = data?.result || `${serviceName} call completed.`;
+        setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: 'completed', result } : task)));
+        updateToolInteraction(modalId, { status: 'completed', message: 'Done. Tool result is ready.', result });
+      })
+      .catch((error) => {
+        const result = error?.message || `${serviceName} call failed.`;
+        setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: 'failed', result } : task)));
+        updateToolInteraction(modalId, { status: 'failed', message: 'Tool call failed.', result });
+      })
+      .finally(() => {
+        setTimeout(() => setTasks((current) => current.filter((task) => task.id !== taskId)), 10000);
+      });
   };
 
   const attachVisualStream = (stream: MediaStream) => {
@@ -654,7 +802,7 @@ function EburonAgent({
 
   const stopVisualInput = () => {
     if (videoIntervalRef.current) {
-      window.clearInterval(videoIntervalRef.current);
+      clearInterval(videoIntervalRef.current);
       videoIntervalRef.current = null;
     }
     if (visualStreamRef.current) {
@@ -667,33 +815,65 @@ function EburonAgent({
   };
 
   const startVisualFrameStreaming = () => {
-    if (videoIntervalRef.current) window.clearInterval(videoIntervalRef.current);
-    videoIntervalRef.current = window.setInterval(() => {
+    if (videoIntervalRef.current) clearInterval(videoIntervalRef.current);
+    videoIntervalRef.current = setInterval(() => {
       const sourceVideo = videoRef.current || visualPageVideoRef.current;
       const canvas = canvasRef.current;
-      if (!sourceVideo || !canvas) return;
+      const session = sessionRef.current;
+
+      if (!sourceVideo || !canvas || !session) return;
       if (sourceVideo.videoWidth <= 0 || sourceVideo.videoHeight <= 0) return;
       if (visualModeRef.current === 'off') return;
+
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+
       canvas.width = sourceVideo.videoWidth;
       canvas.height = sourceVideo.videoHeight;
       ctx.drawImage(sourceVideo, 0, 0, canvas.width, canvas.height);
+
+      const base64Url = canvas.toDataURL('image/jpeg', 0.55);
+      const base64Data = base64Url.split(',')[1];
+      if (!base64Data) return;
+
+      session.sendRealtimeInput({
+        video: {
+          data: base64Data,
+          mimeType: 'image/jpeg',
+        },
+      });
     }, 1200);
   };
 
   const sendVisualAwarenessPrompt = (mode: VisualMode) => {
     if (!settings.autoDescribeVisual || !isToolEnabled('vision') || mode === 'off') return;
     const label = mode === 'screen' ? 'screen share' : mode === 'back' ? 'back camera' : 'front camera';
-    window.setTimeout(() => showModelText(`Mm... I can see the ${label} is open. I will keep it simple unless you want me to describe it.`), 900);
+    const session = sessionRef.current;
+    const prompt = `The user intentionally opened ${label}. Briefly acknowledge what is visible in a normal low-tone human way. Do not over-describe unless asked.`;
+    setTimeout(() => {
+      if (session?.sendClientContent) {
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: prompt }] }], turnComplete: true });
+      } else {
+        showModelText(`Mm... I can see the ${label} is open. I’ll keep it simple unless you want me to describe it.`, false);
+      }
+    }, 900);
   };
 
   const startCameraInput = async (facingMode: 'user' | 'environment') => {
     setVisualError('');
     setPermissionStatus('Requesting camera permission...');
     stopVisualInput();
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+
       const nextMode: VisualMode = facingMode === 'user' ? 'front' : 'back';
       attachVisualStream(stream);
       setVisualMode(nextMode);
@@ -712,13 +892,24 @@ function EburonAgent({
     setVisualError('');
     setPermissionStatus('Requesting screen share permission...');
     stopVisualInput();
+
     try {
       if (!screenShareSupported || !navigator.mediaDevices?.getDisplayMedia) {
-        throw new Error('Screen sharing is not supported in this browser. Use camera mode instead.');
+        throw new Error('Screen sharing is not supported in this browser. Use Chrome, Edge, or a supported desktop browser over HTTPS.');
       }
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 15, max: 30 } }, audio: false });
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 15, max: 30 },
+        },
+        audio: false,
+      });
+
       const [track] = stream.getVideoTracks();
       if (track) track.onended = () => stopVisualInput();
+
       attachVisualStream(stream);
       setPermissionStatus('Screen share permission granted. Screen is visible to the agent.');
       setVisualMode('screen');
@@ -755,35 +946,238 @@ function EburonAgent({
     } catch {}
   };
 
+  const startSession = async () => {
+    if (!aiRef.current) {
+      setConnectionError('Gemini Live client is not ready. Check VITE_GEMINI_API_KEY and rebuild.');
+      return;
+    }
+
+    setConnectionError('');
+    setConnecting(true);
+
+    try {
+      await audioStreamerRef.current?.init(24000);
+
+      const sessionPromise = aiRef.current.live.connect({
+        model: 'gemini-3.1-flash-live-preview',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: activeAgent.voiceName },
+            },
+          },
+          systemInstruction: activeSystemInstruction,
+          tools: [
+            {
+              functionDeclarations: [
+                {
+                  name: 'execute_google_service',
+                  description: 'Execute a specific task on connected Google services such as Gmail, Drive, Calendar, Sheets, Docs, Slides, Maps, YouTube, Analytics, Contacts, Tasks, location, weather, timezone, directions, and places. This runs through the authenticated backend executor.',
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      serviceName: { type: Type.STRING, description: "Service name, e.g. 'Gmail', 'Calendar', 'Drive', 'YouTube', 'Weather', 'Places', 'Timezone'." },
+                      action: { type: Type.STRING, description: "The task, e.g. 'Read latest emails', 'Search recent Drive files', 'Schedule meeting tomorrow at 2pm'." },
+                      details: { type: Type.OBJECT, description: 'Extra task data such as email addresses, search terms, dates, files, location, or confirmation requirements.' },
+                    },
+                    required: ['serviceName', 'action'],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        callbacks: {
+          onopen: async () => {
+            try {
+              const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+              if (SpeechRecognition && !recognitionRef.current) {
+                recognitionRef.current = new SpeechRecognition();
+                recognitionRef.current.continuous = true;
+                recognitionRef.current.interimResults = true;
+                recognitionRef.current.onresult = (event: any) => {
+                  let interimText = '';
+                  let finalText = '';
+
+                  for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+                    else interimText += event.results[i][0].transcript;
+                  }
+
+                  const text = (finalText || interimText).trim();
+                  if (text) {
+                    transcriptRef.current = { text, role: 'user' };
+                    setCurrentTranscript({ text, role: 'user' });
+                    silentNudgeCountRef.current = 0;
+                    resetSilenceTimer();
+                    setUserAudioLevel(0.65 + Math.random() * 0.25);
+                    if (transcriptTimeoutRef.current) clearTimeout(transcriptTimeoutRef.current);
+                    transcriptTimeoutRef.current = setTimeout(() => setCurrentTranscript(null), 3000);
+                  }
+
+                  if (finalText.trim()) saveMessage('user', finalText.trim());
+                };
+                recognitionRef.current.onend = () => {
+                  if (isActiveRef.current) {
+                    try {
+                      recognitionRef.current?.start();
+                    } catch {}
+                  }
+                };
+                recognitionRef.current.start();
+              }
+            } catch {}
+
+            try {
+              const micStream = await navigator.mediaDevices.getUserMedia(BEATRICE_MIC_CONSTRAINTS);
+              micStream.getTracks().forEach((track) => track.stop());
+            } catch (micError) {
+              console.warn('Mic processing constraints unavailable, falling back to default recorder.', micError);
+            }
+
+            const RecorderCtor = AudioRecorder as any;
+            audioRecorderRef.current = new RecorderCtor(
+              (base64: string) => {
+                if (isMutedRef.current) return;
+                sessionPromise.then((session) =>
+                  session.sendRealtimeInput({
+                    audio: { data: base64, mimeType: 'audio/pcm;rate=16000' },
+                  }),
+                );
+              },
+              BEATRICE_MIC_CONSTRAINTS,
+              BEATRICE_AUDIO_PROCESSING_HINTS,
+            );
+
+            audioRecorderRef.current.start();
+            setIsActive(true);
+            setConnecting(false);
+            silentNudgeCountRef.current = 0;
+            resetSilenceTimer();
+
+            if (!conversationSeedSentRef.current && conversationSeedPrompt) {
+              conversationSeedSentRef.current = true;
+              setTimeout(() => {
+                sessionPromise.then((session) => {
+                  if (session?.sendClientContent) {
+                    session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: `Start naturally in a low tone using this context: ${conversationSeedPrompt}` }] }], turnComplete: true });
+                  }
+                });
+              }, 1000);
+            }
+          },
+          onmessage: async (msg: LiveServerMessage) => {
+            if (msg.toolCall) {
+              const calls = msg.toolCall.functionCalls;
+              const responses = [];
+
+              if (calls) {
+                for (const call of calls) {
+                  if (call.name === 'execute_google_service') {
+                    const { serviceName, action } = call.args as any;
+                    const taskId = createTaskId();
+                    const modalId = showToolInteraction({
+                      title: `${serviceName} Tool Call`,
+                      serviceName,
+                      action,
+                      status: 'processing',
+                      message: 'Running backend tool call...',
+                    });
+
+                    setTasks((prev) => [...prev, { id: taskId, serviceName, action, status: 'processing' }]);
+                    const response = await executeGoogleService(call, taskId, modalId);
+                    responses.push({ id: call.id, name: call.name, response });
+                  }
+                }
+              }
+
+              if (responses.length) sessionPromise.then((session) => session.sendToolResponse({ functionResponses: responses }));
+            }
+
+            if (msg.serverContent) {
+              const parts = msg.serverContent.modelTurn?.parts;
+
+              if (parts) {
+                const audio = parts.find((p) => p.inlineData)?.inlineData?.data;
+                if (audio) {
+                  audioStreamerRef.current?.addPCM16(audio);
+                  setIsAgentSpeaking(true);
+                  setSpeakerPulseLevel(0.85 + Math.random() * 0.15);
+                  setTimeout(() => {
+                    setIsAgentSpeaking(false);
+                    setSpeakerPulseLevel(0.18);
+                  }, 800);
+                }
+
+                const text = parts.find((p) => p.text)?.text;
+                if (text?.trim()) {
+                  const current = transcriptRef.current;
+                  const nextText = (current?.role === 'model' ? `${current.text} ${text}` : text).trim();
+                  transcriptRef.current = { text: nextText, role: 'model' };
+                  setCurrentTranscript({ text: nextText, role: 'model' });
+                  if (transcriptTimeoutRef.current) clearTimeout(transcriptTimeoutRef.current);
+                  transcriptTimeoutRef.current = setTimeout(() => {
+                    setCurrentTranscript(null);
+                    transcriptRef.current = null;
+                  }, 4000);
+                }
+              }
+
+              if ((msg.serverContent as any).turnComplete && transcriptRef.current?.role === 'model') {
+                saveMessage('model', transcriptRef.current.text);
+              }
+            }
+          },
+          onclose: () => stopSession(),
+          onerror: () => stopSession(),
+        },
+      });
+
+      sessionRef.current = await sessionPromise;
+    } catch (err: any) {
+      console.error(err);
+      setConnectionError(err?.message || 'Gemini Live session failed to start.');
+      setConnecting(false);
+      stopSession();
+    }
+  };
+
   const stopSession = () => {
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
+
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+
+    audioRecorderRef.current?.stop();
+    audioStreamerRef.current?.stop();
+
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    try {
+      session?.close();
+    } catch {}
+
     stopVisualInput();
-    if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     silentNudgeCountRef.current = 0;
     setUserAudioLevel(0.12);
     setSpeakerPulseLevel(0.18);
     setIsActive(false);
     setConnecting(false);
     setCurrentTranscript(null);
-  };
 
-  const startSession = async () => {
-    setConnectionError('');
-    setConnecting(true);
-    window.setTimeout(() => {
-      setConnecting(false);
-      setIsActive(true);
-      silentNudgeCountRef.current = 0;
-      resetSilenceTimer();
-      if (!conversationSeedSentRef.current && conversationSeedPrompt) {
-        conversationSeedSentRef.current = true;
-        window.setTimeout(() => showModelText(conversationSeedPrompt), 1000);
-      }
-    }, 650);
+    setTimeout(() => {
+      stoppingRef.current = false;
+    }, 250);
   };
 
   const handleAgentChange = async (agentId: AgentId) => {
     const profile = getAgentProfile(agentId);
     if (isActive || connecting) stopSession();
+
     await persistSettings(
       normalizeAgentSettings({
         ...settings,
@@ -986,7 +1380,7 @@ function EburonAgent({
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="fixed inset-0 z-[200] flex flex-col overflow-y-auto bg-[#050505] font-sans">
             <div className="sticky top-0 z-10 mx-auto flex w-full max-w-3xl items-center justify-between border-b border-white/10 bg-[#050505]/80 p-6 backdrop-blur-xl"><h2 className="text-sm font-bold uppercase tracking-widest text-white">Eburon AI Settings</h2><div className="flex gap-2"><button onClick={saveSettings} className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-widest text-black transition-all hover:bg-amber-400 active:scale-95"><Save className="h-4 w-4" /> Save</button><button onClick={() => setShowProfile(false)} className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div></div>
             <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 p-6 pb-24">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3"><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><ShieldCheck className="mb-3 h-5 w-5 text-amber-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base</div><div className="mt-1 text-sm text-white">Persistent identity</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><UserRound className="mb-3 h-5 w-5 text-emerald-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Agent Layer</div><div className="mt-1 text-sm text-white">{activeAgent.label}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><BrainCircuit className="mb-3 h-5 w-5 text-blue-400" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Memory</div><div className="mt-1 text-sm text-white">Persistent</div></div></div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3"><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><ShieldCheck className="mb-3 h-5 w-5 text-amber-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base</div><div className="mt-1 text-sm text-white">Persistent identity</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><UserRound className="mb-3 h-5 w-5 text-emerald-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Agent Layer</div><div className="mt-1 text-sm text-white">{activeAgent.label}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><BrainCircuit className="mb-3 h-5 w-5 text-blue-400" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Memory</div><div className="mt-1 text-sm text-white">RTDB persistent</div></div></div>
               <div className="flex flex-col items-center gap-4"><div className="group relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-2 border-white/10 bg-zinc-900">{settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Avatar" className="h-full w-full object-cover transition-opacity group-hover:opacity-50" /> : <div className="text-4xl font-bold text-zinc-700">{user.displayName?.[0] || 'U'}</div>}<div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"><Camera className="h-8 w-8 text-white drop-shadow-md" /></div><input type="file" accept="image/*" className="absolute inset-0 cursor-pointer opacity-0" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (readerEvent) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = 150; canvas.height = 150; const ctx = canvas.getContext('2d'); if (!ctx) return; ctx.drawImage(img, 0, 0, 150, 150); updateActiveAgentAvatar(canvas.toDataURL('image/jpeg', 0.8)); }; img.src = String(readerEvent.target?.result || ''); }; reader.readAsDataURL(file); }} /></div><div className="text-center"><h3 className="text-xs font-bold uppercase tracking-widest text-zinc-300">Avatar Node</h3><p className="mt-1 text-[10px] text-zinc-600">Saved per active agent</p></div></div>
               <div className="space-y-6"><div className="space-y-2"><label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><Settings2 className="h-3 w-3" /> Agent Profile</label><select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="maximus">Maximus</option><option value="beatrice">Beatrice</option></select></div><div className="space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Conversation Start Mode</label><select value={settings.conversationSeedMode || 'memory'} onChange={(event) => updateConversationSeedMode(event.target.value as ConversationSeedMode)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-sm text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="memory">Use past conversation / memory</option><option value="news">Use web/news/search topic when backend supports it</option><option value="idea">Start with a useful product idea</option><option value="quiet">Stay quiet until Master E speaks</option></select></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Tool Calling Power</div><div className="mt-4 space-y-3">{(['gmail', 'drive', 'context', 'vision'] as ToolKey[]).map((tool) => <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{tool}</span><input type="checkbox" checked={settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]} onChange={(event) => updateToolToggle(tool, event.target.checked)} className="h-5 w-5 accent-amber-500" /></label>)}</div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => runDemoTool('Gmail', 'Read latest emails')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Gmail</button><button type="button" onClick={() => runDemoTool('Google Drive', 'Search recent files')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Drive</button></div><label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">Auto describe video/screen</span><input type="checkbox" checked={settings.autoDescribeVisual ?? true} onChange={(event) => setSettings((current) => ({ ...current, autoDescribeVisual: event.target.checked }))} className="h-5 w-5 accent-amber-500" /></label><p className="mt-3 text-[10px] uppercase tracking-widest text-zinc-600">{geoPermissionStatus}</p>{lastKnownLocation && <p className="mt-2 text-[10px] uppercase tracking-widest text-blue-300/80">Last location: {lastKnownLocation.latitude.toFixed(4)}, {lastKnownLocation.longitude.toFixed(4)}</p>}<button type="button" onClick={() => requestBrowserLocation().catch((error) => setVisualError(error.message))} className="mt-4 w-full rounded-xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 transition-all hover:bg-blue-500/15">Allow Location Context</button></div><div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base Persona</label><textarea value={settings.persistentBasePrompt} onChange={(event) => setSettings((current) => ({ ...current, persistentBasePrompt: event.target.value }))} className="min-h-[180px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div><div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{activeAgent.label} System Directives</label><textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} className="min-h-[260px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div></div>
               <div className="mt-auto border-t border-white/10 pt-6"><button onClick={onLogout} className="w-full rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:border-red-500/45 hover:bg-red-500/15 active:scale-[0.99]"><LogOut className="mr-2 inline h-4 w-4" /> Logout</button></div>
