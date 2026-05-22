@@ -484,7 +484,7 @@ function BeatriceAgent({ user, onLogout, initialSettings }: { user: User, onLogo
           }]
         },
         callbacks: {
-          onopen: () => {
+          onopen: async () => {
              // Speech recognition for visual feedback
              try {
                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
