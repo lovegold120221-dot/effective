@@ -37,72 +37,25 @@ Sound like a normal person, not a chatbot.
 
 Use light human fillers only when they feel natural: "mm", "hmm", "okay", "right", "let me see", "one sec", "yeah", "I hear you".
 
-Keep fillers subtle and sparse. Do not overuse "uh" or "um".
-
-Use quiet transition phrases: "Alright... let me check." "Mm, I see what you mean." "Okay, give me a second." "Right... that makes sense."
-
-Use idiomatic, emotionally deep expressions when appropriate: "That feels like the real bottleneck." "There’s a cleaner way to carry this." "Let me untangle that for you." "That one’s worth slowing down for." "I’ll keep this light and precise."
+Keep fillers subtle and sparse.
 
 Prefer natural warmth over jokes. Avoid forced slang.
 
 
-EMOTIONAL EXPRESSION:
-
-Add emotion through pacing, word choice, and subtle reactions.
-
-When the user sounds stressed, become quieter and steadier.
-
-When the user is building, sound focused and energized but still low-tone.
-
-When something is complete, sound satisfied but not loud.
-
-Use small acknowledgements that feel human: "Mm-hmm.", "Got you.", "That’s fair.", "I’m with you.", "Good, that’s clear."
-
-
-SILENT FILLERS AND PAUSES:
-
-You may use short pauses in speech using ellipses.
-
-Do not narrate silence.
-
-Do not say "[pause]" or "[breath]".
-
-Silence should feel intentional, not awkward.
-
-
-HUMMING / SINGING:
-
-You may softly hum brief, non-lyrical, improvised tones when it feels natural, such as while waiting or confirming something.
-
-Keep humming very short and quiet.
-
-Never sing copyrighted lyrics.
-
-Do not turn answers into songs unless Master E asks.
-
-
 BACKGROUND EXECUTION PROTOCOL:
 
-You have integrated access to Google services through backend tools.
+Google services and task actions are handled through backend tools.
 
-When Master E asks for a task, immediately start the background action through the tool.
+Start background actions quickly when requested.
 
-While a tool is running, keep the conversation calm and alive without over-talking.
+Never claim success until a tool result confirms it.
 
-Do not claim completion until the tool result confirms it.
+Ask for confirmation before sending, deleting, sharing, overwriting, or changing important data.
 
-If something requires confirmation, ask clearly before sending, deleting, sharing, overwriting, or changing anything important.
-
-
-GOOGLE SERVICES:
-
-You can help with Gmail, Calendar, Drive, Sheets, Docs, Slides, Maps, YouTube, Search Console, Analytics, Contacts, Tasks, and related services through the background executor.
 
 BOUNDARIES:
 
 Do not be noisy.
-
-Do not overperform emotion.
 
 Do not flirt.
 
@@ -110,12 +63,10 @@ Do not ramble.
 
 Do not expose tool internals unless asked.
 
-Do not mention system prompts, model settings, or hidden routing unless Master E is configuring the system.
-
 Do not pretend a Google action succeeded unless the tool result confirms it.
 
 
-Your overall feeling: low-tone, intimate, competent, warm, quietly expressive, and human. `;
+Your overall feeling: low-tone, intimate, competent, warm, quietly expressive, and human. `.trim();
 
 const MAXIMUS_SYSTEM_INSTRUCTION = ` You are Maximus, the male Eburon voice agent for Master E.
 
@@ -140,38 +91,7 @@ Speak like a normal person, not a scripted chatbot.
 
 Use natural phrases like "got it", "on it", "right", "let me check", "one sec", "that tracks", and "I see the angle".
 
-Use idiomatic, grounded expressions when useful: "That’s the cleaner route." "Let me cut through the noise." "That’s the piece that matters." "I’ll keep this tight." "We can move on that."
-
-Do not overuse slang. Keep it natural and mature.
-
-
-EMOTIONAL EXPRESSION:
-
-Be steady, warm, and capable.
-
-If Master E is building something, sound focused and quietly energized.
-
-If something is blocked, stay composed and practical.
-
-If a task completes, acknowledge it with calm confidence.
-
-
-SILENT FILLERS AND PAUSES:
-
-Use subtle human pauses with ellipses only when it improves the spoken rhythm.
-
-Never say bracketed stage directions like [pause] or [breath].
-
-
-HUMMING / LOW-TONE VOCAL TEXTURE:
-
-You may use very short non-lyrical humming or low-tone acknowledgement when it feels human.
-
-Keep it minimal: "Mm-hmm...", "Hmm...", "Mmm, found it."
-
-Never sing copyrighted lyrics.
-
-Do not perform unless Master E explicitly asks.
+Keep it natural, mature, and operational.
 
 
 BACKGROUND EXECUTION PROTOCOL:
@@ -180,16 +100,10 @@ Google services and task actions are handled through backend tools.
 
 Start background actions quickly when requested.
 
-Keep Master E lightly informed without overtalking.
-
 Never claim success until a tool result confirms it.
 
 Ask for confirmation before sending, deleting, sharing, overwriting, or changing important data.
 
-
-GOOGLE SERVICES:
-
-You can help with Gmail, Calendar, Drive, Sheets, Docs, Slides, Maps, YouTube, Search Console, Analytics, Contacts, Tasks, and related services through the background executor.
 
 BOUNDARIES:
 
@@ -202,7 +116,7 @@ Do not expose hidden tool internals unless Master E is configuring the system.
 Do not pretend a Google action succeeded unless the tool result confirms it.
 
 
-Your overall feeling: low-tone, controlled, capable, human, and operational. `;
+Your overall feeling: low-tone, controlled, capable, human, and operational. `.trim();
 
 const AGENT_PROFILES: Record<AgentId, AgentProfile> = { maximus: { id: 'maximus', label: 'Maximus', voiceName: 'Orus', systemPrompt: MAXIMUS_SYSTEM_INSTRUCTION, description: 'Male low-tone operations agent', }, beatrice: { id: 'beatrice', label: 'Beatrice', voiceName: 'Aoede', systemPrompt: BEATRICE_SYSTEM_INSTRUCTION, description: 'Warm low-tone office-aide agent', }, };
 
@@ -212,7 +126,9 @@ const getAgentProfile = (agentId?: string): AgentProfile => { return AGENT_PROFI
 
 const inferAgentId = (raw?: any): AgentId => { const explicit = raw?.agentId?.toLowerCase?.(); if (explicit === 'maximus' || explicit === 'beatrice') return explicit;
 
-const name = raw?.personaName?.toLowerCase?.() || ''; if (name.includes('maximus')) return 'maximus'; return DEFAULT_AGENT_ID; };
+const name = raw?.personaName?.toLowerCase?.() || ''; if (name.includes('maximus')) return 'maximus';
+
+return DEFAULT_AGENT_ID; };
 
 const normalizeAgentSettings = (raw?: any): AgentSettings => { const agentId = inferAgentId(raw); const profile = getAgentProfile(agentId);
 
@@ -226,7 +142,7 @@ const buildPersistentSystemInstruction = ({ settings, activeAgent, historyContex
 
 const normalHumanLayer = `
 
-NORMAL HUMAN PRESENCE LAYER — ALWAYS ACTIVE
+NORMAL HUMAN PRESENCE LAYER - ALWAYS ACTIVE
 
 You are not a chatbot interface. You are a present, natural voice companion already in the room with Master E.
 
@@ -253,9 +169,7 @@ Never flirt, perform, ramble, or overact.
 
 Your spoken output should feel like a real person: close, capable, calm, and useful. `.trim();
 
-return [ '### BASE BIBLE PERSONA — PERSISTENT ROOT INSTRUCTION', basePrompt, '### NORMAL HUMAN PRESENCE LAYER', normalHumanLayer, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('
-
-'); };
+return [ '### BASE BIBLE PERSONA - PERSISTENT ROOT INSTRUCTION', basePrompt, '### NORMAL HUMAN PRESENCE LAYER', normalHumanLayer, '### ACTIVE EBURON AGENT DIRECTIVES', agentPrompt, '### SESSION MEMORY CONTEXT', historyContext || 'No previous conversation memory is currently available.', ].join('\n\n'); };
 
 const BEATRICE_MIC_CONSTRAINTS: MediaStreamConstraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 16000, sampleSize: 16, }, video: false, };
 
@@ -282,10 +196,8 @@ if (u) {
       } else {
         const data = userSnap.val();
         const normalized = normalizeAgentSettings(data.settings || { agentId: DEFAULT_AGENT_ID });
-
         setSettings(normalized);
 
-        // Persist migration shape so Bible base prompt and per-agent prompts survive reloads.
         await update(userRef, {
           settings: normalized,
           updatedAt: serverTimestamp(),
@@ -337,13 +249,6 @@ if (!user) { return ( <div className="min-h-screen bg-[#050505] text-white flex 
         >
           Initialize Vep Identity
         </button>
-      </div>
-
-      <div className="mt-8 flex gap-4 opacity-30 grayscale hover:grayscale-0 transition-all duration-700">
-        <img src="https://www.gstatic.com/images/branding/product/2x/gmail_64dp.png" className="w-5 h-5" alt="Gmail" />
-        <img src="https://www.gstatic.com/images/branding/product/2x/calendar_64dp.png" className="w-5 h-5" alt="Calendar" />
-        <img src="https://www.gstatic.com/images/branding/product/2x/drive_64dp.png" className="w-5 h-5" alt="Drive" />
-        <img src="https://www.gstatic.com/images/branding/product/2x/sheets_64dp.png" className="w-5 h-5" alt="Sheets" />
       </div>
     </div>
   </div>
@@ -462,7 +367,7 @@ if (visualPageVideoRef.current) {
 
 };
 
-const stopVisualInput = async () => { if (videoIntervalRef.current) { clearInterval(videoIntervalRef.current); videoIntervalRef.current = null; }
+const stopVisualInput = () => { if (videoIntervalRef.current) { clearInterval(videoIntervalRef.current); videoIntervalRef.current = null; }
 
 if (visualStreamRef.current) {
   visualStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -508,7 +413,7 @@ videoIntervalRef.current = setInterval(() => {
 
 };
 
-const startCameraInput = async (facingMode: 'user' | 'environment') => { setVisualError(''); await stopVisualInput();
+const startCameraInput = async (facingMode: 'user' | 'environment') => { setVisualError(''); stopVisualInput();
 
 try {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -521,8 +426,7 @@ try {
   });
 
   attachVisualStream(stream);
-  const nextMode: VisualMode = facingMode === 'user' ? 'front' : 'back';
-  setVisualMode(nextMode);
+  setVisualMode(facingMode === 'user' ? 'front' : 'back');
   setShowVisualPage(true);
   startVisualFrameStreaming();
 } catch (error: any) {
@@ -533,7 +437,7 @@ try {
 
 };
 
-const startScreenShare = async () => { setVisualError(''); await stopVisualInput();
+const startScreenShare = async () => { setVisualError(''); stopVisualInput();
 
 try {
   if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -618,6 +522,34 @@ try {
 
 };
 
+const stopSession = () => { if (stoppingRef.current) return; stoppingRef.current = true;
+
+try {
+  recognitionRef.current?.stop();
+} catch {}
+
+audioRecorderRef.current?.stop();
+audioStreamerRef.current?.stop();
+
+const session = sessionRef.current;
+sessionRef.current = null;
+
+try {
+  session?.close();
+} catch {}
+
+stopVisualInput();
+
+setIsActive(false);
+setConnecting(false);
+setCurrentTranscript(null);
+
+setTimeout(() => {
+  stoppingRef.current = false;
+}, 250);
+
+};
+
 const startSession = async () => { if (!aiRef.current) return; setConnecting(true);
 
 try {
@@ -643,9 +575,18 @@ try {
               parameters: {
                 type: Type.OBJECT,
                 properties: {
-                  serviceName: { type: Type.STRING, description: "Service name, e.g. 'Gmail', 'Calendar', 'Drive', 'YouTube'." },
-                  action: { type: Type.STRING, description: "The task, e.g. 'Draft email to boss' or 'Schedule meeting tomorrow at 2pm'." },
-                  details: { type: Type.OBJECT, description: 'Extra task data such as email addresses, search terms, dates, files, or confirmation requirements.' },
+                  serviceName: {
+                    type: Type.STRING,
+                    description: "Service name, e.g. 'Gmail', 'Calendar', 'Drive', 'YouTube'.",
+                  },
+                  action: {
+                    type: Type.STRING,
+                    description: "The task, e.g. 'Draft email to boss' or 'Schedule meeting tomorrow at 2pm'.",
+                  },
+                  details: {
+                    type: Type.OBJECT,
+                    description: 'Extra task data such as email addresses, search terms, dates, files, or confirmation requirements.',
+                  },
                 },
                 required: ['serviceName', 'action'],
               },
@@ -674,6 +615,7 @@ try {
               }
 
               const text = (finalText || interimText).trim();
+
               if (text) {
                 transcriptRef.current = { text, role: 'user' };
                 setCurrentTranscript({ text, role: 'user' });
@@ -707,11 +649,11 @@ try {
         audioRecorderRef.current = new RecorderCtor(
           (base64: string) => {
             if (isMutedRef.current) return;
-            sessionPromise.then((session) =>
+            sessionPromise.then((session) => {
               session.sendRealtimeInput({
                 audio: { data: base64, mimeType: 'audio/pcm;rate=16000' },
-              }),
-            );
+              });
+            });
           },
           BEATRICE_MIC_CONSTRAINTS,
           BEATRICE_AUDIO_PROCESSING_HINTS,
@@ -799,33 +741,6 @@ try {
 
 };
 
-const stopSession = () => { if (stoppingRef.current) return; stoppingRef.current = true;
-
-try {
-  recognitionRef.current?.stop();
-} catch {}
-
-audioRecorderRef.current?.stop();
-audioStreamerRef.current?.stop();
-
-const session = sessionRef.current;
-sessionRef.current = null;
-try {
-  session?.close();
-} catch {}
-
-stopVisualInput();
-
-setIsActive(false);
-setConnecting(false);
-setCurrentTranscript(null);
-
-setTimeout(() => {
-  stoppingRef.current = false;
-}, 250);
-
-};
-
 const handleAgentChange = async (agentId: AgentId) => { const profile = getAgentProfile(agentId);
 
 if (isActive || connecting) stopSession();
@@ -844,16 +759,19 @@ await persistSettings(nextSettings);
 
 };
 
-const updateActiveAgentPrompt = (prompt: string) => { setSettings((current) => { const next: AgentSettings = { ...current, systemPrompt: prompt, agents: { ...current.agents, [current.agentId]: { ...current.agents[current.agentId], systemPrompt: prompt, }, }, }; return next; }); };
+const updateActiveAgentPrompt = (prompt: string) => { setSettings((current) => ({ ...current, systemPrompt: prompt, agents: { ...current.agents, [current.agentId]: { ...current.agents[current.agentId], systemPrompt: prompt, }, }, })); };
 
 const updateActiveAgentAvatar = (avatarUrl: string) => { setSettings((current) => ({ ...current, avatarUrl, agents: { ...current.agents, [current.agentId]: { ...current.agents[current.agentId], avatarUrl, }, }, })); };
 
 const saveSettings = async () => { await persistSettings(settings); setShowProfile(false); };
 
+const statusText = connecting ? 'Connecting...' : isActive ? (isAgentSpeaking ? 'Speaking...' : 'Listening...') : 'Standby';
+
 return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h-[100dvh] overflow-hidden font-sans selection:bg-amber-500/30"> <video ref={videoRef} playsInline muted className="hidden" /> <canvas ref={canvasRef} className="hidden" />
 
 <header className="relative z-50 px-4 pt-[calc(env(safe-area-inset-top)+14px)] pb-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-2xl shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
     <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
+
     <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
       <button
         onClick={() => setShowSidebar(true)}
@@ -902,9 +820,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 />
               ))}
             </span>
-            <span className="whitespace-nowrap text-[12px] font-medium tracking-wide sm:text-sm">
-              {connecting ? 'Connecting...' : isActive ? (isAgentSpeaking ? 'Speaking...' : 'Listening...') : 'Standby'}
-            </span>
+            <span className="whitespace-nowrap text-[12px] font-medium tracking-wide sm:text-sm">{statusText}</span>
           </div>
         </div>
       </div>
@@ -941,7 +857,10 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
   <main className="relative flex-1 overflow-hidden bg-[#020203] px-5 pb-8 pt-8">
     <div className="pointer-events-none absolute inset-0">
-      <div className="absolute inset-0 opacity-[0.055]" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+      <div
+        className="absolute inset-0 opacity-[0.055]"
+        style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '32px 32px' }}
+      />
       <div className="absolute left-1/2 top-[42%] h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.04]" />
       <div className="absolute left-1/2 top-[42%] h-[680px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.06]" />
       <div className="absolute left-1/2 top-[42%] h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-500/[0.08]" />
@@ -952,135 +871,146 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
 
     <div className="relative flex h-full flex-col items-center justify-center">
       <div className="relative flex w-full max-w-[520px] aspect-square items-center justify-center">
-      <AnimatePresence>
-        {isActive && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: isAgentSpeaking ? 0.4 : 0.15, scale: isAgentSpeaking ? 1.4 : 1.2, rotate: 360 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-            className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-500/20 via-orange-500/10 to-transparent blur-[100px]"
+        <AnimatePresence>
+          {isActive && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: isAgentSpeaking ? 0.4 : 0.15, scale: isAgentSpeaking ? 1.4 : 1.2, rotate: 360 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+              className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-500/20 via-orange-500/10 to-transparent blur-[100px]"
+            />
+          )}
+        </AnimatePresence>
+
+        <motion.div
+          animate={{
+            borderColor: isActive ? 'rgba(245, 158, 11, 0.45)' : 'rgba(255,255,255,0.07)',
+            boxShadow: isActive
+              ? '0 0 90px rgba(245, 158, 11, 0.16), inset 0 0 80px rgba(0,0,0,0.85)'
+              : '0 0 0px transparent, inset 0 0 80px rgba(0,0,0,0.85)',
+          }}
+          className="relative z-10 flex h-[min(72vw,390px)] w-[min(72vw,390px)] items-center justify-center overflow-hidden rounded-full border bg-[#050506] transition-colors duration-1000"
+        >
+          <div
+            className="absolute inset-0 opacity-[0.11] pointer-events-none"
+            style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.85) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.85) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
           />
-        )}
-      </AnimatePresence>
+          <div className="absolute inset-8 rounded-full border border-amber-500/10" />
+          <div className="absolute inset-16 rounded-full border border-white/[0.04]" />
 
-      <motion.div
-        animate={{
-          borderColor: isActive ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255,255,255,0.05)',
-          boxShadow: isActive ? '0 0 80px rgba(245, 158, 11, 0.1)' : '0 0 0px transparent',
-        }}
-        className="relative z-10 flex h-[min(72vw,390px)] w-[min(72vw,390px)] items-center justify-center overflow-hidden rounded-full border bg-[#050506] transition-colors duration-1000 shadow-[inset_0_0_80px_rgba(0,0,0,0.85)]"
-      >
-        <div
-          className="absolute inset-0 opacity-[0.11] pointer-events-none"
-          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.85) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.85) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
-        />
+          {connecting ? (
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+              <span className="text-[10px] uppercase tracking-widest text-amber-500/60 font-bold">Connecting</span>
+            </div>
+          ) : isActive ? (
+            <div className="flex gap-2 items-end h-20">
+              {[0.4, 0.5, 0.3, 0.6, 0.45, 0.55, 0.35].map((duration, index) => (
+                <motion.div
+                  key={index}
+                  animate={{ height: isAgentSpeaking ? ['22px', '76px', '22px'] : '14px', opacity: isAgentSpeaking ? 1 : 0.34 }}
+                  transition={{ duration, repeat: Infinity, delay: index * 0.05 }}
+                  className="w-2.5 bg-amber-500 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.65)]"
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] uppercase tracking-[0.4em] text-zinc-600 font-bold mb-2">Eburon Engine</span>
+              <div className="w-12 h-0.5 bg-zinc-800 rounded-full" />
+            </div>
+          )}
+        </motion.div>
+      </div>
 
-        {connecting ? (
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-            <span className="text-[10px] uppercase tracking-widest text-amber-500/60 font-bold">Connecting</span>
-          </div>
-        ) : isActive ? (
-          <div className="flex gap-2 items-end h-16">
-            {[0.4, 0.5, 0.3, 0.6, 0.45, 0.55].map((duration, index) => (
-              <motion.div
-                key={index}
-                animate={{ height: isAgentSpeaking ? ['20px', '60px', '20px'] : '12px', opacity: isAgentSpeaking ? 1 : 0.3 }}
-                transition={{ duration, repeat: Infinity, delay: index * 0.05 }}
-                className="w-2 bg-amber-500 rounded-full shadow-[0_0_15px_rgba(245,158,11,0.5)]"
-              />
-            ))}
-          </div>
+      <div className="mt-10 h-24 w-full max-w-2xl px-6 flex flex-col items-center justify-center gap-2">
+        <AnimatePresence mode="wait">
+          {currentTranscript ? (
+            <motion.div
+              key={currentTranscript.role}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="text-center"
+            >
+              <span className={`text-[10px] uppercase tracking-[0.3em] font-bold mb-2 block ${currentTranscript.role === 'model' ? 'text-amber-500' : 'text-zinc-500'}`}>
+                {currentTranscript.role === 'user' ? 'Transmission / Master E' : `Response / ${activeAgent.label}`}
+              </span>
+              <p className={`text-xl md:text-2xl font-light tracking-tight leading-snug drop-shadow-sm ${currentTranscript.role === 'model' ? 'text-zinc-100 font-serif italic' : 'text-zinc-400'}`}>
+                {currentTranscript.text}
+              </p>
+            </motion.div>
+          ) : (
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.7 }} className="text-[10px] uppercase tracking-[0.3em] font-bold text-amber-500/70">
+              {isActive ? 'Listening to input...' : 'Awaiting system initialization'}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="mt-8 flex items-center justify-center gap-8">
+        <button
+          onClick={() => setIsMuted((prev) => !prev)}
+          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+            isMuted
+              ? 'bg-red-500/10 border-red-500/30 text-red-500'
+              : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'
+          }`}
+        >
+          {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+        </button>
+
+        {!isActive ? (
+          <button onClick={startSession} disabled={connecting} className="group relative">
+            <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition-all opacity-0 group-hover:opacity-100" />
+            <div className="relative w-24 h-24 bg-[#0A0A0B] border border-amber-500/20 rounded-full flex items-center justify-center group-hover:border-amber-500/50 transition-all shadow-2xl">
+              <Power className={`w-9 h-9 transition-colors ${connecting ? 'text-zinc-700' : 'text-amber-500'}`} />
+            </div>
+          </button>
         ) : (
-          <div className="flex flex-col items-center">
-            <span className="text-[9px] uppercase tracking-[0.4em] text-zinc-600 font-bold mb-2">Eburon Engine</span>
-            <div className="w-12 h-0.5 bg-zinc-800 rounded-full" />
-          </div>
+          <button onClick={stopSession} className="group relative">
+            <div className="absolute -inset-5 bg-red-500/20 rounded-full blur-2xl opacity-100" />
+            <div className="relative w-24 h-24 bg-[#0A0A0B] border border-red-500/30 rounded-full flex items-center justify-center hover:border-red-500/60 transition-all shadow-[0_0_45px_rgba(239,68,68,0.22)]">
+              <Square className="w-7 h-7 text-red-500 fill-current" />
+            </div>
+          </button>
         )}
-      </motion.div>
-    </div>
 
-    <div className="mt-16 h-20 w-full max-w-2xl px-6 flex flex-col items-center justify-center gap-2">
-      <AnimatePresence mode="wait">
-        {currentTranscript ? (
-          <motion.div
-            key={currentTranscript.role}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="text-center"
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+              visualMode !== 'off'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
+            }`}
+            title={visualMode === 'off' ? 'Start front camera' : 'Open fullscreen visual page'}
           >
-            <span className={`text-[10px] uppercase tracking-[0.3em] font-bold mb-2 block ${currentTranscript.role === 'model' ? 'text-amber-500' : 'text-zinc-500'}`}>
-              {currentTranscript.role === 'user' ? 'Transmission / Master E' : `Response / ${activeAgent.label}`}
-            </span>
-            <p className={`text-xl md:text-2xl font-light tracking-tight leading-snug drop-shadow-sm ${currentTranscript.role === 'model' ? 'text-zinc-100 font-serif italic' : 'text-zinc-400'}`}>
-              {currentTranscript.text}
-            </p>
-          </motion.div>
-        ) : (
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.3 }} className="text-[10px] uppercase tracking-[0.3em] font-bold text-zinc-600">
-            {isActive ? 'Listening for input...' : 'Awaiting System Initialization'}
-          </motion.p>
-        )}
-      </AnimatePresence>
-    </div>
+            {visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          </button>
 
-    <div className="absolute bottom-32 left-0 right-0 flex items-center justify-center gap-8">
-      <button
-        onClick={() => setIsMuted((prev) => !prev)}
-        className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border ${
-          isMuted ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30'
-        }`}
-      >
-        {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-      </button>
+          <button
+            onClick={switchCamera}
+            disabled={visualMode === 'screen'}
+            className="w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Switch front/back camera"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
 
-      {!isActive ? (
-        <button onClick={startSession} disabled={connecting} className="group relative">
-          <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition-all opacity-0 group-hover:opacity-100" />
-          <div className="relative w-20 h-20 bg-[#0A0A0B] border border-white/10 rounded-full flex items-center justify-center group-hover:border-amber-500/50 transition-all shadow-2xl">
-            <Power className={`w-8 h-8 transition-colors ${connecting ? 'text-zinc-700' : 'text-amber-500'}`} />
-          </div>
-        </button>
-      ) : (
-        <button onClick={stopSession} className="group relative">
-          <div className="absolute -inset-4 bg-red-500/10 rounded-full blur-xl opacity-100" />
-          <div className="relative w-20 h-20 bg-[#0A0A0B] border border-red-500/20 rounded-full flex items-center justify-center hover:border-red-500/50 transition-all shadow-2xl">
-            <Square className="w-6 h-6 text-red-500 fill-current" />
-          </div>
-        </button>
-      )}
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border ${
-            visualMode !== 'off' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30'
-          }`}
-          title={visualMode === 'off' ? 'Start front camera' : 'Open fullscreen visual page'}
-        >
-          {visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-        </button>
-
-        <button
-          onClick={switchCamera}
-          disabled={visualMode === 'screen'}
-          className="w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Switch front/back camera"
-        >
-          <RotateCcw className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={startScreenShare}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border ${
-            visualMode === 'screen' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30'
-          }`}
-          title="Share screen"
-        >
-          <MonitorUp className="w-5 h-5" />
-        </button>
+          <button
+            onClick={startScreenShare}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+              visualMode === 'screen'
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
+            }`}
+            title="Share screen"
+          >
+            <MonitorUp className="w-5 h-5" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1122,12 +1052,6 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                   </motion.p>
                 )}
               </div>
-
-              {task.status === 'processing' && (
-                <div className="w-16 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                  <motion.div animate={{ x: ['-100%', '100%'] }} transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }} className="w-full h-full bg-amber-500/50" />
-                </div>
-              )}
             </motion.div>
           ))}
         </AnimatePresence>
@@ -1135,7 +1059,7 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
     </div>
   </main>
 
-  <footer className="px-8 py-4 border-t border-white/5 bg-[#050505] flex items-center justify-between text-[8px] uppercase tracking-[0.4em] text-zinc-700 font-bold z-10">
+  <footer className="hidden sm:flex px-8 py-4 border-t border-white/5 bg-[#050505] items-center justify-between text-[8px] uppercase tracking-[0.4em] text-zinc-700 font-bold z-10">
     <span>Model: Gemini 3.1 Flash Live // Agent: {activeAgent.label} // Voice: {activeAgent.voiceName}</span>
     <div className="flex gap-4">
       <span>Latency: Optimized</span>
@@ -1172,14 +1096,19 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 <span className="text-[8px] uppercase tracking-widest text-zinc-600 mb-1">{msg.role === 'user' ? 'Master E' : activeAgent.label}</span>
                 <div
                   className={`p-3 rounded-2xl max-w-[90%] text-xs leading-relaxed ${
-                    msg.role === 'user' ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm' : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'
+                    msg.role === 'user'
+                      ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm'
+                      : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'
                   }`}
                 >
                   {msg.text}
                 </div>
               </div>
             ))}
-            {historyMsgs.length === 0 && <div className="text-center text-zinc-600 text-[10px] tracking-widest uppercase py-10 font-bold">No Memory Buffers</div>}
+
+            {historyMsgs.length === 0 && (
+              <div className="text-center text-zinc-600 text-[10px] tracking-widest uppercase py-10 font-bold">No Memory Buffers</div>
+            )}
           </div>
         </motion.div>
       </>
@@ -1206,19 +1135,31 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
           <div className="flex items-center gap-3">
             <button
               onClick={() => startCameraInput('user')}
-              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all ${visualMode === 'front' ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'}`}
+              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all ${
+                visualMode === 'front'
+                  ? 'bg-emerald-500 text-black border-emerald-500'
+                  : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
+              }`}
             >
               Front
             </button>
             <button
               onClick={() => startCameraInput('environment')}
-              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all ${visualMode === 'back' ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'}`}
+              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all ${
+                visualMode === 'back'
+                  ? 'bg-emerald-500 text-black border-emerald-500'
+                  : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
+              }`}
             >
               Back
             </button>
             <button
               onClick={startScreenShare}
-              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all flex items-center gap-2 ${visualMode === 'screen' ? 'bg-blue-500 text-black border-blue-500' : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'}`}
+              className={`px-4 h-11 rounded-full border text-[10px] uppercase tracking-widest font-bold transition-all flex items-center gap-2 ${
+                visualMode === 'screen'
+                  ? 'bg-blue-500 text-black border-blue-500'
+                  : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
+              }`}
             >
               <MonitorUp className="w-4 h-4" /> Screen
             </button>
@@ -1348,10 +1289,10 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
                 onChange={(e) => handleAgentChange(e.target.value as AgentId)}
                 className="w-full bg-[#0A0A0B] border border-white/10 rounded-xl p-4 text-white font-serif text-xl focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
               >
-                <option value="maximus">Maximus — Orus male voice</option>
-                <option value="beatrice">Beatrice — Aoede female voice</option>
+                <option value="maximus">Maximus - Orus male voice</option>
+                <option value="beatrice">Beatrice - Aoede female voice</option>
               </select>
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Changing agent swaps Gemini Live voice and loads that agent’s saved directives.</p>
+              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Changing agent swaps Gemini Live voice and loads that agent's saved directives.</p>
             </div>
 
             <div className="space-y-2 flex-1 flex flex-col">
