@@ -949,10 +949,10 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
         </AnimatePresence>
       </div>
 
-      <div className="mt-8 flex items-center justify-center gap-8">
+      <div className="mt-8 grid w-full max-w-[420px] grid-cols-3 items-center justify-items-center gap-4">
         <button
           onClick={() => setIsMuted((prev) => !prev)}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+          className={`h-14 w-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
             isMuted
               ? 'bg-red-500/10 border-red-500/30 text-red-500'
               : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'
@@ -961,26 +961,28 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {!isActive ? (
-          <button onClick={startSession} disabled={connecting} className="group relative">
-            <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition-all opacity-0 group-hover:opacity-100" />
-            <div className="relative w-24 h-24 bg-[#0A0A0B] border border-amber-500/20 rounded-full flex items-center justify-center group-hover:border-amber-500/50 transition-all shadow-2xl">
-              <Power className={`w-9 h-9 transition-colors ${connecting ? 'text-zinc-700' : 'text-amber-500'}`} />
-            </div>
-          </button>
-        ) : (
-          <button onClick={stopSession} className="group relative">
-            <div className="absolute -inset-5 bg-red-500/20 rounded-full blur-2xl opacity-100" />
-            <div className="relative w-24 h-24 bg-[#0A0A0B] border border-red-500/30 rounded-full flex items-center justify-center hover:border-red-500/60 transition-all shadow-[0_0_45px_rgba(239,68,68,0.22)]">
-              <Square className="w-7 h-7 text-red-500 fill-current" />
-            </div>
-          </button>
-        )}
+        <div className="flex items-center justify-center">
+          {!isActive ? (
+            <button onClick={startSession} disabled={connecting} className="group relative">
+              <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition-all opacity-0 group-hover:opacity-100" />
+              <div className="relative w-24 h-24 bg-[#0A0A0B] border border-amber-500/20 rounded-full flex items-center justify-center group-hover:border-amber-500/50 transition-all shadow-2xl">
+                <Power className={`w-9 h-9 transition-colors ${connecting ? 'text-zinc-700' : 'text-amber-500'}`} />
+              </div>
+            </button>
+          ) : (
+            <button onClick={stopSession} className="group relative">
+              <div className="absolute -inset-5 bg-red-500/20 rounded-full blur-2xl opacity-100" />
+              <div className="relative w-24 h-24 bg-[#0A0A0B] border border-red-500/30 rounded-full flex items-center justify-center hover:border-red-500/60 transition-all shadow-[0_0_45px_rgba(239,68,68,0.22)]">
+                <Square className="w-7 h-7 text-red-500 fill-current" />
+              </div>
+            </button>
+          )}
+        </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-center gap-2">
           <button
             onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+            className={`h-14 w-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
               visualMode !== 'off'
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
                 : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
@@ -989,28 +991,30 @@ return ( <div className="min-h-screen bg-[#020203] text-zinc-300 flex flex-col h
           >
             {visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
           </button>
-
-          <button
-            onClick={switchCamera}
-            disabled={visualMode === 'screen'}
-            className="w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Switch front/back camera"
-          >
-            <RotateCcw className="w-5 h-5" />
-          </button>
-
-          <button
-            onClick={startScreenShare}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg border ${
-              visualMode === 'screen'
-                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'
-            }`}
-            title="Share screen"
-          >
-            <MonitorUp className="w-5 h-5" />
-          </button>
         </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-center gap-3">
+        <button
+          onClick={switchCamera}
+          disabled={visualMode === 'screen'}
+          className="h-11 w-11 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Switch front/back camera"
+        >
+          <RotateCcw className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={startScreenShare}
+          className={`h-11 w-11 rounded-full flex items-center justify-center transition-all shadow-lg border ${
+            visualMode === 'screen'
+              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+              : 'bg-[#0A0A0B] border-white/10 text-zinc-400 hover:text-white hover:border-white/30'
+          }`}
+          title="Share screen"
+        >
+          <MonitorUp className="w-4 h-4" />
+        </button>
       </div>
     </div>
 
