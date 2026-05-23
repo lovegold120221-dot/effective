@@ -1501,18 +1501,18 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
               <div className="relative flex flex-col items-center justify-center w-12 h-14">
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 24 28">
                   <path d="M 12 26 A 10 10 0 0 1 12 6" fill="none" strokeWidth="2" strokeLinecap="round"
-                    className="transition-all duration-100 stroke-amber-400"
+                    className="audio-level-path transition-all duration-100 stroke-amber-400"
                     style={{
-                      strokeDasharray: `${isMuted ? 0 : userAudioLevel * 31.4} 31.4`,
-                      opacity: isMuted ? 0.15 : 0.85,
-                    }}
+                      '--stroke-dasharray': `${isMuted ? 0 : userAudioLevel * 31.4}`,
+                      '--stroke-opacity': isMuted ? 0.15 : 0.85,
+                    } as React.CSSProperties}
                   />
                   <path d="M 12 26 A 10 10 0 0 0 12 6" fill="none" strokeWidth="2" strokeLinecap="round"
-                    className="transition-all duration-100 stroke-amber-400"
+                    className="audio-level-path transition-all duration-100 stroke-amber-400"
                     style={{
-                      strokeDasharray: `${isMuted ? 0 : userAudioLevel * 31.4} 31.4`,
-                      opacity: isMuted ? 0.15 : 0.85,
-                    }}
+                      '--stroke-dasharray': `${isMuted ? 0 : userAudioLevel * 31.4}`,
+                      '--stroke-opacity': isMuted ? 0.15 : 0.85,
+                    } as React.CSSProperties}
                   />
                 </svg>
                 <div className="relative flex flex-col items-center">
@@ -1627,7 +1627,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><UserRound className="h-3 w-3 text-amber-500/70" /> Persona Name</label>
-                <select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50">
+                <select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} aria-label="Select persona" className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50">
                   <option value="maximus">Maximus</option>
                   <option value="beatrice">Beatrice</option>
                 </select>
@@ -1647,7 +1647,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
               <div className="flex flex-col space-y-2">
                 <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><BrainCircuit className="h-3 w-3 text-amber-500/70" /> System Prompt</label>
-                <textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} className="min-h-[200px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" />
+                <textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} placeholder="Enter system prompt..." className="min-h-[200px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" />
               </div>
 
               <div className="space-y-2">
@@ -1704,7 +1704,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                   <span className="text-[9px] font-mono text-zinc-600">{getGrantedCount(oauthScopes)}/{oauthScopes.length} granted</span>
                 </div>
                 <div className="w-full h-1.5 rounded-full bg-white/5 mb-4 overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500" style={{ width: `${(getGrantedCount(oauthScopes) / Math.max(oauthScopes.length, 1)) * 100}%` }} />
+                  <div className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500" style={{ '--progress-width': `${(getGrantedCount(oauthScopes) / Math.max(oauthScopes.length, 1)) * 100}%` } as React.CSSProperties} />
                 </div>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
                   {Object.entries(oauthScopes.reduce<Record<string, OAuthScopeState[]>>((acc, s) => { if (!acc[s.category]) acc[s.category] = []; acc[s.category].push(s); return acc; }, {})).map(([category, scopes]) => (

@@ -12,3 +12,12 @@ html, body, #root {
   background-image: radial-gradient(circle, white 1px, transparent 1px);
   background-size: 32px 32px;
 }
+
+.audio-level-path {
+  stroke-dasharray: var(--stroke-dasharray, 31.4) 31.4;
+  opacity: var(--stroke-opacity, 0.85);
+}
+
+.progress-bar-fill {
+  width: var(--progress-width, 0%);
+}
