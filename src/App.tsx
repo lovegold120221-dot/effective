@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, rtdb, handleDatabaseError, OperationType } from './firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { ref, get, set, push, onValue, query, orderByChild, limitToLast, serverTimestamp, update } from 'firebase/database';
 import { GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
 import { AudioRecorder, AudioStreamer } from './lib/audio';
@@ -26,12 +26,14 @@ import type {
 import { classifyActionRisk, requiresConfirmation, OAUTH_SCOPES } from './lib/permissions';
 import { loadGrantedScopes, saveGrantedScopes, requestAdditionalScope, getGrantedCount, getScopesToRequest } from './lib/oauth';
 import type { OAuthScopeState } from './lib/types';
-import DesktopViewport from './components/DesktopViewport';
+import AuthPage from './components/AuthPage';
 import ToolConfirmationModal from './components/ToolConfirmationModal';
+import SessionsPanel from './components/SessionsPanel';
 import StreamingText from './components/StreamingText';
 import {
   BrainCircuit,
   Camera,
+  Captions,
   Check,
   Command,
   Loader2,
@@ -41,18 +43,17 @@ import {
   Mic,
   MicOff,
   MonitorUp,
-  PanelRight,
   Power,
   RotateCcw,
   Save,
-  Settings2,
+  Settings,
   ShieldCheck,
   Square,
   Trash2,
   UserRound,
   Video,
-  VideoOff,
   Volume2,
+  VideoOff,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -362,15 +363,6 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   const handleLogout = () => signOut(auth);
 
   if (loading) {
@@ -385,35 +377,7 @@ export default function App() {
   }
 
   if (!user) {
-    return (
-      <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none dot-pattern" />
-        <div className="absolute top-0 left-1/2 -ml-[400px] w-[800px] h-[800px] bg-amber-500/5 rounded-full blur-[120px] pointer-events-none" />
-        <div className="relative z-10 flex flex-col items-center max-w-sm w-full">
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-zinc-800 to-black p-[2px] mb-8 shadow-2xl relative group">
-            <div className="w-full h-full rounded-[2rem] bg-[#0A0A0B] flex items-center justify-center border border-white/5 transition-colors group-hover:border-amber-500/50">
-              <Volume2 className="w-10 h-10 text-amber-500" />
-            </div>
-            <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/40 border-2 border-black">
-              <Command className="w-4 h-4 text-black" />
-            </div>
-          </motion.div>
-          <h1 className="text-5xl font-light tracking-tight mb-2 text-white">Vep</h1>
-          <p className="text-zinc-500 text-center mb-10 leading-relaxed font-serif italic text-lg decoration-zinc-800">Powered by Eburon AI</p>
-          <div className="w-full p-1 bg-white/5 rounded-full backdrop-blur-xl border border-white/10">
-            <button onClick={handleLogin} className="w-full bg-amber-500 text-black font-bold text-sm tracking-widest uppercase h-14 rounded-full hover:bg-amber-400 transition-all active:scale-[0.98] shadow-lg shadow-amber-500/20">
-              Initialize Vep Identity
-            </button>
-          </div>
-          <div className="mt-8 flex gap-4 opacity-30 grayscale hover:grayscale-0 transition-all duration-700">
-            <img src="https://www.gstatic.com/images/branding/product/2x/gmail_64dp.png" className="w-5 h-5" alt="Gmail" />
-            <img src="https://www.gstatic.com/images/branding/product/2x/calendar_64dp.png" className="w-5 h-5" alt="Calendar" />
-            <img src="https://www.gstatic.com/images/branding/product/2x/drive_64dp.png" className="w-5 h-5" alt="Drive" />
-            <img src="https://www.gstatic.com/images/branding/product/2x/sheets_64dp.png" className="w-5 h-5" alt="Sheets" />
-          </div>
-        </div>
-      </div>
-    );
+    return <AuthPage />;
   }
 
   return <EburonAgent user={user} onLogout={handleLogout} initialSettings={settings} />;
@@ -427,7 +391,6 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const [historyContext, setHistoryContext] = useState('');
   const [historyMsgs, setHistoryMsgs] = useState<ChatMessage[]>([]);
   const [isMuted, setIsMuted] = useState(false);
-  const [showViewport, setShowViewport] = useState(false);
 
   // Improvement #1: Transcript entries
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([]);
@@ -440,9 +403,13 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
   // Improvement #3: OAuth scopes
   const [oauthScopes, setOauthScopes] = useState<OAuthScopeState[]>(() => loadGrantedScopes(user.uid));
-  const [showSidebar, setShowSidebar] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showVisualPage, setShowVisualPage] = useState(false);
+  const [showCaptions, setShowCaptions] = useState(true);
+  const [aiCallName, setAiCallName] = useState(user.displayName || 'Master E');
+  const [voiceStyle, setVoiceStyle] = useState('Native Speaking');
   const [visualMode, setVisualMode] = useState<VisualMode>('off');
   const [visualError, setVisualError] = useState('');
   const [permissionStatus, setPermissionStatus] = useState('Camera and screen permissions not requested yet.');
@@ -461,13 +428,14 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const sessionRef = useRef<any>(null);
   const audioStreamerRef = useRef<AudioStreamer | null>(null);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
-  const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef<{ text: string; role: 'user' | 'model' } | null>(null);
   const transcriptTimeoutRef = useRef<any>(null);
   const conversationSeedSentRef = useRef(false);
   const isMutedRef = useRef(false);
   const isActiveRef = useRef(false);
   const stoppingRef = useRef(false);
+  const isAgentSpeakingRef = useRef(false);
+  const agentSpeechTimeoutRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const visualPageVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -560,9 +528,14 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
     }
 
     pulseTimerRef.current = setInterval(() => {
-      if (!isAgentSpeaking) setSpeakerPulseLevel(0.14 + Math.random() * 0.08);
+      const level = audioStreamerRef.current?.getLevel() ?? 0;
+      if (level > 0.01) {
+        setSpeakerPulseLevel(Math.min(1, level * 1.8));
+      } else {
+        setSpeakerPulseLevel(0.14 + Math.random() * 0.08);
+      }
       if (!isMutedRef.current) setUserAudioLevel(0.12 + Math.random() * 0.42);
-    }, 900);
+    }, 150);
 
     return () => {
       if (pulseTimerRef.current) clearInterval(pulseTimerRef.current);
@@ -1013,6 +986,8 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
               prebuiltVoiceConfig: { voiceName: activeAgent.voiceName },
             },
           },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
           systemInstruction: activeSystemInstruction,
           tools: [
             {
@@ -1036,47 +1011,6 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
         },
         callbacks: {
           onopen: async () => {
-            try {
-              const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-              if (SpeechRecognition && !recognitionRef.current) {
-                recognitionRef.current = new SpeechRecognition();
-                recognitionRef.current.continuous = true;
-                recognitionRef.current.interimResults = true;
-                recognitionRef.current.onresult = (event: any) => {
-                  let interimText = '';
-                  let finalText = '';
-
-                  for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
-                    else interimText += event.results[i][0].transcript;
-                  }
-
-                  const text = (finalText || interimText).trim();
-                  if (text) {
-                    silentNudgeCountRef.current = 0;
-                    resetSilenceTimer();
-                    setUserAudioLevel(0.65 + Math.random() * 0.25);
-                    if (finalText.trim()) {
-                      addTranscriptEntry('user', finalText.trim(), true);
-                      setStreamingText(null);
-                      setStreamingRole(null);
-                    } else {
-                      setStreamingText(interimText.trim());
-                      setStreamingRole('user');
-                    }
-                  }
-                };
-                recognitionRef.current.onend = () => {
-                  if (isActiveRef.current) {
-                    try {
-                      recognitionRef.current?.start();
-                    } catch {}
-                  }
-                };
-                recognitionRef.current.start();
-              }
-            } catch {}
-
             try {
               const micStream = await navigator.mediaDevices.getUserMedia(BEATRICE_MIC_CONSTRAINTS);
               micStream.getTracks().forEach((track) => track.stop());
@@ -1148,9 +1082,6 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                     });
 
                     if (needsConfirm) {
-                      // Auto-expand viewport when pending confirmation
-                      setShowViewport(true);
-
                       const pending: PendingToolCall = {
                         id: taskId,
                         serviceName,
@@ -1223,11 +1154,14 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                 if (audio) {
                   audioStreamerRef.current?.addPCM16(audio);
                   setIsAgentSpeaking(true);
+                  isAgentSpeakingRef.current = true;
                   setSpeakerPulseLevel(0.85 + Math.random() * 0.15);
-                  setTimeout(() => {
+                  clearTimeout(agentSpeechTimeoutRef.current);
+                  agentSpeechTimeoutRef.current = setTimeout(() => {
                     setIsAgentSpeaking(false);
+                    isAgentSpeakingRef.current = false;
                     setSpeakerPulseLevel(0.18);
-                  }, 800);
+                  }, 1500);
                 }
 
                 const text = parts.find((p) => p.text)?.text;
@@ -1250,6 +1184,26 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                 transcriptRef.current = null;
                 setStreamingText(null);
                 setStreamingRole(null);
+                setIsAgentSpeaking(false);
+                isAgentSpeakingRef.current = false;
+                setSpeakerPulseLevel(0.18);
+                clearTimeout(agentSpeechTimeoutRef.current);
+              }
+
+              // Gemini native input transcription (user speech)
+              // Skip while AI is speaking to avoid echo transcription
+              const inputText = isAgentSpeakingRef.current ? null : msg.serverContent.inputTranscription?.text?.trim();
+              if (inputText) {
+                silentNudgeCountRef.current = 0;
+                resetSilenceTimer();
+                if (msg.serverContent.inputTranscription.finished) {
+                  addTranscriptEntry('user', inputText, true);
+                  setStreamingText(null);
+                  setStreamingRole(null);
+                } else {
+                  setStreamingText(inputText);
+                  setStreamingRole('user');
+                }
               }
             }
           },
@@ -1270,10 +1224,6 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const stopSession = () => {
     if (stoppingRef.current) return;
     stoppingRef.current = true;
-
-    try {
-      recognitionRef.current?.stop();
-    } catch {}
 
     audioRecorderRef.current?.stop();
     audioStreamerRef.current?.stop();
@@ -1305,6 +1255,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
 
     stopVisualInput();
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    clearTimeout(agentSpeechTimeoutRef.current);
     silentNudgeCountRef.current = 0;
     setUserAudioLevel(0.12);
     setSpeakerPulseLevel(0.18);
@@ -1351,9 +1302,17 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
     }));
   };
 
+  const saveProfile = async () => {
+    try {
+      localStorage.setItem('vep_aiCallName', aiCallName);
+      localStorage.setItem('vep_voiceStyle', voiceStyle);
+    } catch {}
+    await persistSettings(settings);
+  };
+
   const saveSettings = async () => {
     await persistSettings(settings);
-    setShowProfile(false);
+    setShowSettings(false);
   };
 
   const updateConversationSeedMode = (mode: ConversationSeedMode) => {
@@ -1396,24 +1355,39 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       <video ref={videoRef} playsInline muted className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
-      <header className="relative z-50 px-4 pt-[calc(env(safe-area-inset-top)+14px)] pb-4 border-b border-white/[0.06] bg-black/80 backdrop-blur-2xl shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
-        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-center">
-          <button onClick={() => handleAgentChange(activeAgent.id === 'maximus' ? 'beatrice' : 'maximus')} aria-label={`Switch to ${activeAgent.id === 'maximus' ? 'Beatrice' : 'Maximus'} agent`} className="text-center">
-            <div className="text-[22px] font-black uppercase leading-none tracking-[0.28em] text-zinc-100 sm:text-2xl">{activeAgent.label}</div>
-            <div className="mt-1 text-[8px] font-bold uppercase tracking-[0.28em] text-zinc-600">Eburon AI</div>
+      <header className="relative z-50 px-4 pt-[calc(env(safe-area-inset-top)+44px)] pb-4 border-b border-white/[0.04] bg-gradient-to-b from-black/90 via-black/80 to-black/70 backdrop-blur-2xl shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
+        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/35 to-transparent" />
+        <div className="absolute left-1/2 top-0 h-[120px] w-[280px] -translate-x-1/2 rounded-full bg-amber-500/[0.04] blur-[80px]" />
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between">
+          <button onClick={() => setShowTranscript(t => !t)} aria-label="Sessions" className="flex h-10 w-10 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/10 hover:text-zinc-200 transition-all duration-200 active:scale-90">
+            <Menu className="h-5 w-5" />
           </button>
+          <button onClick={() => handleAgentChange(activeAgent.id === 'maximus' ? 'beatrice' : 'maximus')} aria-label="Switch agent" className="flex h-10 items-center justify-center text-center active:scale-95 transition-transform duration-150">
+            <div>
+              <div className="text-[22px] font-black uppercase leading-none tracking-[0.28em] text-zinc-100 sm:text-2xl">{activeAgent.label}</div>
+              <div className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.28em] text-zinc-600">Eburon AI</div>
+            </div>
+          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setShowProfile(true)} aria-label="Profile" className="flex h-10 w-10 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/10 hover:text-zinc-200 transition-all duration-200 active:scale-90">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-violet-600 to-[#321066] text-[10px] font-bold text-white shadow-[0_0_12px_rgba(139,92,246,0.3)]">
+                {settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="" className="h-full w-full rounded-full object-cover" /> : (user.displayName?.[0] || 'U').toLowerCase()}
+              </span>
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="relative flex-1 overflow-hidden bg-[#020203] px-5 pb-8 pt-8">
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,rgba(245,158,11,0.16),rgba(2,2,3,0.52)_34%,rgba(2,2,3,1)_78%)]" />
-          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),transparent_22%,rgba(245,158,11,0.035)_72%,transparent)]" />
-          <div className="absolute left-1/2 top-[38%] h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.035] blur-[90px]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,rgba(245,158,11,0.18),rgba(2,2,3,0.52)_34%,rgba(2,2,3,1)_78%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_22%,rgba(245,158,11,0.04)_72%,transparent)]" />
+          <div className="absolute left-1/2 top-[38%] h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/[0.045] blur-[100px]" />
+          <div className="absolute left-1/3 top-[20%] h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-orange-500/[0.025] blur-[120px]" />
+          <div className="absolute right-1/4 bottom-[15%] h-[200px] w-[200px] rounded-full bg-amber-600/[0.025] blur-[80px]" />
         </div>
 
-        <div className="relative flex h-full flex-col items-center justify-center overflow-hidden">
+        <div className="relative flex h-full flex-col items-center justify-start pt-12 overflow-hidden">
           <div className="relative flex w-full max-w-[520px] aspect-square items-center justify-center">
             <AnimatePresence>
               {isActive && <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: isAgentSpeaking ? 0.4 : 0.15, scale: isAgentSpeaking ? 1.4 : 1.2, rotate: 360 }} exit={{ opacity: 0, scale: 0.8 }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }} className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-500/20 via-orange-500/10 to-transparent blur-[100px]" />}
@@ -1435,7 +1409,6 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
                 </div>
               ) : (
                 <div className="flex flex-col items-center">
-                  <span className="text-[9px] uppercase tracking-[0.4em] text-zinc-600 font-bold mb-2">Eburon Engine</span>
                   <div className="w-12 h-0.5 bg-zinc-800 rounded-full" />
                 </div>
               )}
@@ -1443,120 +1416,133 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
           </div>
 
           {/* Transcript / Streaming Text Area */}
-          <div className="mt-10 w-full max-w-2xl px-6 flex flex-col items-center justify-center gap-2">
-            <AnimatePresence mode="wait">
-              {streamingText && streamingRole === 'model' ? (
-                <motion.div
-                  key="streaming-model"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center max-h-32 overflow-y-auto"
-                >
-                  <p className="text-lg md:text-xl font-light tracking-tight leading-relaxed drop-shadow-sm text-zinc-100 font-serif italic">
-                    <StreamingText text={streamingText} isActive={isActive} />
-                  </p>
+          <div className="mt-4 mb-5 w-full max-w-2xl px-6 flex flex-col items-center justify-center gap-2">
+            <AnimatePresence>
+              {showCaptions && (
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="w-full flex flex-col items-center gap-2">
+                  <AnimatePresence mode="wait">
+                    {streamingText && streamingRole === 'model' ? (
+                      <motion.div
+                        key="streaming-model"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.7 }}
+                        className="text-center line-clamp-3"
+                      >
+                        <p className="text-lg md:text-xl font-light tracking-tight leading-relaxed drop-shadow-sm text-zinc-100 font-serif italic">
+                          <StreamingText text={streamingText} isActive={isActive} />
+                        </p>
+                      </motion.div>
+                    ) : streamingText && streamingRole === 'user' ? (
+                      <motion.div
+                        key="streaming-user"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.7 }}
+                        className="text-center line-clamp-3"
+                      >
+                        <p className="text-lg md:text-xl font-light tracking-tight leading-relaxed text-zinc-400">
+                          {streamingText}
+                        </p>
+                      </motion.div>
+                    ) : transcriptEntries.length > 0 ? (
+                      <motion.div
+                        key="last-entry"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.7 }}
+                        className="text-center line-clamp-3"
+                      >
+                        <p className={`text-lg md:text-xl font-light tracking-tight leading-relaxed drop-shadow-sm ${transcriptEntries[transcriptEntries.length - 1].role === 'model' ? 'text-zinc-100 font-serif italic' : 'text-zinc-400'}`}>
+                          {transcriptEntries[transcriptEntries.length - 1].text}
+                        </p>
+                      </motion.div>
+                    ) : (
+                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.7 }} className="text-[10px] uppercase tracking-[0.3em] font-bold text-amber-500/70">
+                        {isActive ? 'Listening to input...' : 'Tap to Start'}
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                  {transcriptEntries.length > 0 && (
+                    <button
+                      onClick={() => setShowTranscript(true)}
+                      className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 hover:text-amber-400 transition-all duration-200 font-bold mt-1 active:scale-95"
+                    >
+                      View transcript ({transcriptEntries.length})
+                    </button>
+                  )}
                 </motion.div>
-              ) : streamingText && streamingRole === 'user' ? (
-                <motion.div
-                  key="streaming-user"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center"
-                >
-                  <p className="text-lg md:text-xl font-light tracking-tight leading-relaxed text-zinc-400">
-                    {streamingText}
-                  </p>
-                </motion.div>
-              ) : transcriptEntries.length > 0 ? (
-                <motion.div
-                  key="last-entry"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center max-h-24 overflow-y-auto"
-                >
-                  <p className={`text-lg md:text-xl font-light tracking-tight leading-relaxed drop-shadow-sm ${transcriptEntries[transcriptEntries.length - 1].role === 'model' ? 'text-zinc-100 font-serif italic' : 'text-zinc-400'}`}>
-                    {transcriptEntries[transcriptEntries.length - 1].text}
-                  </p>
-                </motion.div>
-              ) : (
-                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.7 }} className="text-[10px] uppercase tracking-[0.3em] font-bold text-amber-500/70">
-                  {isActive ? 'Listening to input...' : 'Awaiting system initialization'}
-                </motion.p>
               )}
             </AnimatePresence>
-            {transcriptEntries.length > 0 && (
-              <button
-                onClick={() => setShowSidebar(true)}
-                className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 hover:text-amber-500/70 transition-colors font-bold mt-1"
-              >
-                View transcript ({transcriptEntries.length})
-              </button>
-            )}
           </div>
 
-          <div className="mt-8 w-full max-w-[390px] overflow-visible rounded-[2rem] border border-white/10 bg-black/45 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <div className="grid h-11 w-full grid-cols-[44px_44px_minmax(78px,1fr)_44px_44px] items-end justify-items-center gap-2 overflow-visible">
-              <button onClick={() => setIsMuted((prev) => !prev)} aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${isMuted ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/30'}`}>{isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}</button>
-              <button onClick={() => (visualMode === 'off' ? startCameraInput('user') : openVisualPage())} aria-label={visualMode !== 'off' ? 'Open visual page' : 'Enable camera'} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${visualMode !== 'off' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30'}`}>{visualMode !== 'off' ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</button>
-              <div className="relative flex h-11 w-[92px] shrink-0 items-end justify-center overflow-visible">
-                {!isActive ? (
-                  <button onClick={startSession} disabled={connecting} aria-label="Start session" className="group absolute bottom-0 left-1/2 -translate-x-1/2">
-                    <div className="absolute -inset-4 rounded-full bg-amber-500/15 blur-2xl opacity-80 transition-all group-hover:bg-amber-500/25" />
-                    <div className="relative flex h-[84px] w-[84px] items-center justify-center overflow-hidden rounded-full border border-amber-500/30 bg-[#0A0A0B] shadow-[0_0_55px_rgba(245,158,11,0.18)] transition-all group-hover:border-amber-400/70 active:scale-95">
-                      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(245,158,11,0.16),transparent_64%)]" />
-                      <div className="absolute bottom-5 left-1/2 flex h-5 w-16 -translate-x-1/2 items-end justify-center gap-[2px] overflow-hidden opacity-80">
-                        {[0.32, 0.56, 0.82, 0.64, 0.42, 0.72, 0.48].map((base, index) => <motion.span key={index} animate={{ height: `${6 + userAudioLevel * base * 18}px`, opacity: isMuted ? 0.2 : 0.95 }} transition={{ duration: 0.16 }} className="w-[3px] rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.75)]" />)}
-                      </div>
-                      <div className="relative z-10 -mt-2">{connecting ? <Loader2 className="h-9 w-9 animate-spin text-amber-500" /> : <Power className="h-9 w-9 text-amber-500" />}</div>
-                    </div>
-                  </button>
-                ) : (
-                  <button onClick={stopSession} aria-label="Stop session" className="group absolute bottom-0 left-1/2 -translate-x-1/2">
-                    <div className="absolute -inset-4 rounded-full bg-red-500/20 blur-2xl opacity-100" />
-                    <div className="relative flex h-[84px] w-[84px] items-center justify-center overflow-hidden rounded-full border border-red-500/35 bg-[#0A0A0B] shadow-[0_0_55px_rgba(239,68,68,0.24)] transition-all hover:border-red-500/70 active:scale-95">
-                      <Square className="relative z-10 h-7 w-7 fill-current text-red-500" />
-                    </div>
-                  </button>
-                )}
-              </div>
-              <button onClick={switchCamera} disabled={visualMode === 'screen'} aria-label="Switch camera" className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed"><RotateCcw className="w-5 h-5" /></button>
-              <button onClick={screenShareSupported ? startScreenShare : () => setPermissionStatus('Screen share is not supported in this browser. Use camera mode instead.')} disabled={!screenShareSupported} className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center transition-all shadow-lg border ${visualMode === 'screen' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : screenShareSupported ? 'bg-[#0A0A0B] border-white/10 text-zinc-300 hover:text-white hover:border-white/30' : 'bg-[#0A0A0B] border-white/5 text-zinc-700 cursor-not-allowed opacity-50'}`} title={screenShareSupported ? 'Share screen' : 'Screen share unsupported in this browser'}><MonitorUp className="w-5 h-5" /></button>
-            </div>
-          </div>
 
-          {connectionError && <div className="mt-4 max-w-[460px] rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-xs text-red-300">{connectionError}</div>}
+
+          {connectionError && <div className="mt-6 max-w-[460px] rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-xs text-red-300">{connectionError}</div>}
           {permissionStatus && visualMode !== 'off' && <div className="mt-3 max-w-[460px] rounded-2xl border border-blue-500/15 bg-blue-500/[0.06] px-4 py-2 text-center text-[10px] uppercase tracking-[0.18em] text-blue-200/80">{permissionStatus}</div>}
         </div>
       </main>
 
-      {/* Desktop Viewport - Tool Call Timeline */}
-      <DesktopViewport
-        toolCalls={toolCalls}
-        expanded={showViewport}
-        onToggle={() => setShowViewport(!showViewport)}
-        onDismiss={dismissToolCall}
-        onClearDismissed={clearDismissedToolCalls}
-      />
-
       {/* Sticky Bottom Navbar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-4 bg-gradient-to-t from-black via-black/95 to-transparent pointer-events-none">
-        <div className="mx-auto max-w-lg">
-          <div className="pointer-events-auto flex items-end justify-center gap-3 rounded-2xl border border-white/10 bg-black/70 backdrop-blur-2xl p-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
-            <button onClick={() => setShowSidebar(true)} type="button" aria-label="Open sidebar" className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all ${showSidebar ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200'}`}>
-              <Menu className="h-5 w-5" />
+      <nav className="fixed bottom-0 left-0 right-0 z-50 px-5 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 bg-gradient-to-t from-black via-black/95 to-transparent pointer-events-none">
+        <div className="mx-auto max-w-sm">
+          <div className="pointer-events-auto flex items-center justify-center gap-0 rounded-[1.75rem] border border-white/[0.07] bg-black/75 backdrop-blur-2xl px-2 pt-2 pb-7 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
+            <button onClick={() => setIsMuted(p => !p)} aria-label={isMuted ? 'Unmute' : 'Mute'} className={`relative flex flex-1 flex-col items-center py-2 rounded-xl transition-all duration-200 active:scale-90 ${isMuted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-200'}`}>
+              <div className="relative flex flex-col items-center justify-center w-12 h-14">
+                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 24 28">
+                  <path d="M 12 26 A 10 10 0 0 1 12 6" fill="none" strokeWidth="2" strokeLinecap="round"
+                    className="transition-all duration-100 stroke-amber-400"
+                    style={{
+                      strokeDasharray: `${isMuted ? 0 : userAudioLevel * 31.4} 31.4`,
+                      opacity: isMuted ? 0.15 : 0.85,
+                    }}
+                  />
+                  <path d="M 12 26 A 10 10 0 0 0 12 6" fill="none" strokeWidth="2" strokeLinecap="round"
+                    className="transition-all duration-100 stroke-amber-400"
+                    style={{
+                      strokeDasharray: `${isMuted ? 0 : userAudioLevel * 31.4} 31.4`,
+                      opacity: isMuted ? 0.15 : 0.85,
+                    }}
+                  />
+                </svg>
+                <div className="relative flex flex-col items-center">
+                  {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                  <span className="text-[7px] font-bold uppercase tracking-[0.12em]">Mic</span>
+                </div>
+              </div>
             </button>
-            <button onClick={() => setShowViewport(!showViewport)} type="button" aria-label="Toggle viewport" className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all ${showViewport ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200'}`}>
-              <PanelRight className="h-5 w-5" />
-              {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-black">
-                  {toolCalls.filter(t => t.status === 'pending_confirmation' || t.status === 'processing').length}
-                </span>
+            <button onClick={() => setShowVisualPage(p => !p)} aria-label="Video" className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 rounded-xl transition-all duration-200 active:scale-90 ${showVisualPage ? 'text-emerald-400' : 'text-zinc-500 hover:text-zinc-200'}`}>
+              <Video className="h-5 w-5" />
+              <span className="text-[7px] font-bold uppercase tracking-[0.12em]">Video</span>
+            </button>
+            <div className="relative flex flex-[1.6] items-center justify-center -mt-1">
+              {!isActive ? (
+                <button onClick={startSession} disabled={connecting} aria-label="Start session" className="group relative active:scale-95 transition-transform duration-150">
+                  <div className="absolute -inset-3 rounded-full bg-amber-500/20 blur-2xl opacity-80 transition-all duration-500 group-hover:opacity-100 group-hover:bg-gradient-to-r group-hover:from-amber-500/30 group-hover:via-orange-500/20 group-hover:to-amber-500/30" />
+                  <div className="relative flex h-[73px] w-[73px] items-center justify-center rounded-full border border-amber-500/30 bg-[#0A0A0B] shadow-[0_0_40px_rgba(245,158,11,0.18)] transition-all duration-300 group-hover:border-amber-400/70 group-hover:shadow-[0_0_60px_rgba(245,158,11,0.35)]">
+                    <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(245,158,11,0.16),transparent_64%)]" />
+                    <div className="absolute bottom-2 left-1/2 flex h-3 w-10 -translate-x-1/2 items-end justify-center gap-[2px] overflow-hidden opacity-80">
+                      {[0.32, 0.56, 0.82, 0.64, 0.42, 0.72, 0.48].map((base, index) => <motion.span key={index} animate={{ height: `${4 + userAudioLevel * base * 10}px`, opacity: isMuted ? 0.2 : 0.95 }} transition={{ duration: 0.16, ease: 'easeOut' }} className="w-[2.5px] rounded-full bg-gradient-to-t from-amber-400 to-amber-300 shadow-[0_0_6px_rgba(251,191,36,0.75)]" />)}
+                    </div>
+                    <div className="relative z-10 -mt-1">{connecting ? <Loader2 className="h-[39px] w-[39px] animate-spin text-amber-500" /> : <Power className="h-[39px] w-[39px] text-amber-500" />}</div>
+                  </div>
+                </button>
+              ) : (
+                <button onClick={stopSession} aria-label="Stop session" className="group relative active:scale-95 transition-transform duration-150">
+                  <div className="absolute -inset-3 rounded-full bg-red-500/20 blur-2xl opacity-100 transition-all duration-500 group-hover:opacity-100 group-hover:bg-gradient-to-r group-hover:from-red-500/30 group-hover:via-rose-500/20 group-hover:to-red-500/30" />
+                  <div className="relative flex h-[73px] w-[73px] items-center justify-center rounded-full border border-red-500/35 bg-[#0A0A0B] shadow-[0_0_40px_rgba(239,68,68,0.24)] transition-all duration-300 hover:border-red-500/70 hover:shadow-[0_0_60px_rgba(239,68,68,0.4)]">
+                    <Square className="relative z-10 h-[39px] w-[39px] fill-current text-red-500" />
+                  </div>
+                </button>
               )}
+            </div>
+            <button onClick={() => setShowCaptions(p => !p)} aria-label="Captions" className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 rounded-xl transition-all duration-200 active:scale-90 ${showCaptions ? 'text-amber-400' : 'text-zinc-500 hover:text-zinc-200'}`}>
+              <Captions className="h-5 w-5" />
+              <span className="text-[7px] font-bold uppercase tracking-[0.12em]">Caption</span>
             </button>
-            <button onClick={() => setShowProfile(true)} type="button" aria-label="Open profile settings" className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-zinc-400 transition-all hover:bg-white/10 hover:text-zinc-200">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 via-violet-700 to-[#321066] text-xs font-bold text-white">
-                {settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Profile" className="h-full w-full rounded-full object-cover" /> : (user.displayName?.[0] || 'g').toLowerCase()}
-              </span>
+            <button onClick={() => setShowSettings(p => !p)} aria-label="Settings" className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 rounded-xl transition-all duration-200 active:scale-90 ${showSettings ? 'text-amber-400' : 'text-zinc-500 hover:text-zinc-200'}`}>
+              <Settings className="h-5 w-5" />
+              <span className="text-[7px] font-bold uppercase tracking-[0.12em]">Settings</span>
             </button>
           </div>
         </div>
@@ -1576,7 +1562,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       {/* Tool Interaction Modal (legacy) */}
       <AnimatePresence>
         {toolModal && (
-          <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+96px)] z-[170] mx-auto max-w-md rounded-3xl border border-white/10 bg-[#070707]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl">
+          <motion.div initial={{ opacity: 0, y: 16, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.96 }} transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.7 }} className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+96px)] z-[170] mx-auto max-w-md rounded-3xl border border-white/10 bg-[#070707]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl">
             <button onClick={() => setToolModal(null)} aria-label="Close modal" className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-zinc-400 transition-all hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
             <div className="pr-11"><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-500">Tool Calling</div><h3 className="mt-2 text-lg font-semibold text-white">{toolModal.title}</h3><p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">{toolModal.serviceName}</p></div>
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-center gap-3">{toolModal.status === 'processing' ? <Loader2 className="h-5 w-5 animate-spin text-amber-500" /> : toolModal.status === 'failed' ? <X className="h-5 w-5 text-red-400" /> : <Check className="h-5 w-5 text-emerald-400" />}<div className="min-w-0"><div className="truncate text-sm text-zinc-100">{toolModal.action}</div><div className="mt-1 text-xs text-zinc-500">{toolModal.message}</div></div></div>{toolModal.result && <div className="mt-4 max-h-40 overflow-y-auto rounded-xl bg-black/30 p-3 text-xs leading-relaxed text-zinc-300">{toolModal.result}</div>}</div>
@@ -1585,166 +1571,163 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       </AnimatePresence>
 
       <AnimatePresence>
-        {showSidebar && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSidebar(false)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 left-0 bottom-0 w-80 bg-[#0A0A0B] border-r border-white/10 shadow-2xl z-[101] flex flex-col font-sans">
-              <div className="p-6 border-b border-white/10 flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-bold text-white tracking-widest uppercase">Session Memory</h2>
-                  <p className="text-[9px] text-zinc-600 mt-0.5">{transcriptEntries.length} live entries &middot; {historyMsgs.length} saved</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  {transcriptEntries.length > 0 && (
-                    <button onClick={clearTranscript} className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-red-400 transition-colors" title="Clear session transcript">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button onClick={() => setShowSidebar(false)} aria-label="Close sidebar" className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {/* Session transcript entries */}
-                {transcriptEntries.length > 0 && (
-                  <div>
-                    <h3 className="text-[9px] font-bold uppercase tracking-widest text-amber-500/70 mb-2 px-1">Current Session</h3>
-                    <div className="space-y-2">
-                      {transcriptEntries.map((entry) => (
-                        <div key={entry.id} className={`flex flex-col ${entry.role === 'user' ? 'items-end' : 'items-start'}`}>
-                          <div className={`p-2.5 rounded-xl max-w-[90%] text-xs leading-relaxed ${entry.role === 'user' ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm' : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'}`}>
-                            {entry.text}
-                            {!entry.isComplete && <span className="inline-block w-1.5 h-3 bg-amber-500 ml-1 animate-pulse rounded-full align-middle" />}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Saved history */}
-                {historyMsgs.length > 0 && (
-                  <div>
-                    <h3 className="text-[9px] font-bold uppercase tracking-widest text-zinc-600 mb-2 px-1">Saved History</h3>
-                    <div className="space-y-2">
-                      {historyMsgs.map((msg, index) => (
-                        <div key={`${msg.timestamp}-${index}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                          <div className={`p-2.5 rounded-xl max-w-[90%] text-xs leading-relaxed ${msg.role === 'user' ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20 rounded-tr-sm' : 'bg-white/5 text-zinc-300 border border-white/5 rounded-tl-sm'}`}>{msg.text}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {transcriptEntries.length === 0 && historyMsgs.length === 0 && (
-                  <div className="text-center text-zinc-600 text-[10px] tracking-widest uppercase py-10 font-bold">No Memory Buffers</div>
-                )}
-              </div>
-            </motion.div>
-          </>
+        {showTranscript && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: 'spring', stiffness: 380, damping: 34, mass: 0.85 }} className="fixed inset-0 z-[100] flex flex-col bg-[#050505] font-sans pt-[calc(env(safe-area-inset-top)+44px)] pb-[calc(env(safe-area-inset-bottom)+24px)]">
+            <SessionsPanel
+              historyMsgs={historyMsgs}
+              onClose={() => setShowTranscript(false)}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {showVisualPage && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[180] overflow-hidden bg-black">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: 'spring', stiffness: 380, damping: 34, mass: 0.85 }} className="fixed inset-0 z-[180] overflow-hidden bg-black">
             {visualMode !== 'off' ? <video ref={visualPageVideoRef} playsInline muted autoPlay className="h-full w-full bg-black object-cover" /> : <div className="flex h-full w-full items-center justify-center bg-[#050505] px-6 text-center"><div><div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5"><Camera className="h-8 w-8 text-zinc-500" /></div><h3 className="text-xl font-light tracking-tight text-white">No video active</h3><p className="mt-2 text-sm text-zinc-500">{screenShareSupported ? 'Start camera or screen share to show video.' : 'Start camera to show video. Screen share is unavailable in this browser.'}</p><p className="mt-3 text-xs text-zinc-600">{permissionStatus}</p>{visualError && <p className="mt-4 text-xs text-red-400">{visualError}</p>}</div></div>}
-            <div className="absolute left-0 right-0 top-0 bg-gradient-to-b from-black/70 to-transparent px-5 pb-10 pt-[calc(env(safe-area-inset-top)+16px)]"><div className="flex items-center justify-between"><div><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">Video</div><div className="mt-1 text-lg font-semibold text-white">{visualMode === 'front' && 'Front Camera'}{visualMode === 'back' && 'Back Camera'}{visualMode === 'screen' && 'Screen Share'}{visualMode === 'off' && 'Camera Off'}</div></div><button onClick={() => setShowVisualPage(false)} aria-label="Close visual page" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-xl active:scale-95"><X className="h-5 w-5" /></button></div></div>
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-5 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-16"><div className="mx-auto flex max-w-[420px] items-center justify-center gap-5 rounded-full border border-white/10 bg-black/45 px-4 py-4 backdrop-blur-xl"><button onClick={() => startCameraInput('user')} aria-label="Start front camera" className={`flex h-14 w-14 items-center justify-center rounded-full border transition-all ${visualMode === 'front' ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-300' : 'border-white/10 bg-white/10 text-white'}`}><Camera className="h-5 w-5" /></button><button onClick={switchCamera} disabled={visualMode === 'screen'} aria-label="Switch camera" className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-all disabled:opacity-30"><RotateCcw className="h-5 w-5" /></button><button onClick={stopVisualInput} aria-label="Stop video" className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-[0_0_35px_rgba(239,68,68,0.35)] transition-all active:scale-95"><VideoOff className="h-6 w-6" /></button><button onClick={screenShareSupported ? startScreenShare : () => setPermissionStatus('Screen share is not supported in this browser. Use camera mode instead.')} disabled={!screenShareSupported} aria-label={screenShareSupported ? 'Share screen' : 'Screen share unsupported'} className={`flex h-14 w-14 items-center justify-center rounded-full border transition-all ${visualMode === 'screen' ? 'border-blue-400/40 bg-blue-500/20 text-blue-300' : screenShareSupported ? 'border-white/10 bg-white/10 text-white' : 'border-white/5 bg-white/5 text-zinc-600 opacity-50'}`} title={screenShareSupported ? 'Share screen' : 'Screen share unsupported in this browser'}><MonitorUp className="h-5 w-5" /></button><button onClick={requestFullscreenVideo} aria-label="Fullscreen" className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-all active:scale-95"><Maximize2 className="h-5 w-5" /></button></div></div>
+            <div className="absolute left-0 right-0 top-0 bg-gradient-to-b from-black/70 to-transparent px-5 pb-10 pt-[calc(env(safe-area-inset-top)+44px)]"><div className="flex items-center justify-between"><div><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">Video</div><div className="mt-1 text-lg font-semibold text-white">{visualMode === 'front' && 'Front Camera'}{visualMode === 'back' && 'Back Camera'}{visualMode === 'screen' && 'Screen Share'}{visualMode === 'off' && 'Camera Off'}</div></div><button onClick={() => setShowVisualPage(false)} aria-label="Close visual page" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-xl active:scale-95"><X className="h-5 w-5" /></button></div></div>
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-5 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-16"><div className="mx-auto flex max-w-[420px] items-center justify-center gap-5 rounded-full border border-white/10 bg-black/45 px-4 py-4 backdrop-blur-xl"><button onClick={() => startCameraInput('user')} aria-label="Start front camera" className={`flex h-14 w-14 items-center justify-center rounded-full border transition-all ${visualMode === 'front' ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-300' : 'border-white/10 bg-white/10 text-white'}`}><Camera className="h-5 w-5" /></button><button onClick={switchCamera} disabled={visualMode === 'screen'} aria-label="Switch camera" className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-all disabled:opacity-30"><RotateCcw className="h-5 w-5" /></button><button onClick={stopVisualInput} aria-label="Stop video" className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-[0_0_35px_rgba(239,68,68,0.35)] transition-all active:scale-95"><VideoOff className="h-6 w-6" /></button><button onClick={screenShareSupported ? startScreenShare : () => setPermissionStatus('Screen share is not supported in this browser. Use camera mode instead.')} disabled={!screenShareSupported} aria-label={screenShareSupported ? 'Share screen' : 'Screen share unsupported'} className={`flex h-14 w-14 items-center justify-center rounded-full border transition-all ${visualMode === 'screen' ? 'border-blue-400/40 bg-blue-500/20 text-blue-300' : screenShareSupported ? 'border-white/10 bg-white/10 text-white' : 'border-white/5 bg-white/5 text-zinc-600 opacity-50'}`} title={screenShareSupported ? 'Share screen' : 'Screen share unsupported in this browser'}><MonitorUp className="h-5 w-5" /></button><button onClick={requestFullscreenVideo} aria-label="Fullscreen" className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-all active:scale-95"><Maximize2 className="h-5 w-5" /></button></div></div>
           </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {showProfile && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="fixed inset-0 z-[200] flex flex-col overflow-y-auto bg-[#050505] font-sans">
-            <div className="sticky top-0 z-10 mx-auto flex w-full max-w-3xl items-center justify-between border-b border-white/10 bg-[#050505]/80 p-6 backdrop-blur-xl"><h2 className="text-sm font-bold uppercase tracking-widest text-white">Eburon AI Settings</h2><div className="flex gap-2"><button onClick={saveSettings} className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-widest text-black transition-all hover:bg-amber-400 active:scale-95"><Save className="h-4 w-4" /> Save</button><button onClick={() => setShowProfile(false)} aria-label="Close profile settings" className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div></div>
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }} transition={{ type: 'spring', stiffness: 360, damping: 32, mass: 0.8 }} className="fixed inset-0 z-[200] flex flex-col overflow-y-auto bg-[#050505] font-sans pt-[calc(env(safe-area-inset-top)+44px)] pb-[calc(env(safe-area-inset-bottom)+24px)]">
+            <div className="sticky top-0 z-10 mx-auto flex w-full max-w-3xl items-center justify-between border-b border-white/[0.06] bg-[#050505]/80 p-6 backdrop-blur-xl">
+              <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/25 to-transparent" />
+              <h2 className="text-sm font-bold uppercase tracking-widest text-white">Profile</h2>
+              <button onClick={() => setShowProfile(false)} aria-label="Close profile" className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
+            </div>
             <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 p-6 pb-24">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3"><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><ShieldCheck className="mb-3 h-5 w-5 text-amber-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base</div><div className="mt-1 text-sm text-white">Persistent identity</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><UserRound className="mb-3 h-5 w-5 text-emerald-500" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Agent Layer</div><div className="mt-1 text-sm text-white">{activeAgent.label}</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><BrainCircuit className="mb-3 h-5 w-5 text-blue-400" /><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Memory</div><div className="mt-1 text-sm text-white">RTDB persistent</div></div></div>
-              <div className="flex flex-col items-center gap-4"><div className="group relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-2 border-white/10 bg-zinc-900">{settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Avatar" className="h-full w-full object-cover transition-opacity group-hover:opacity-50" /> : <div className="text-4xl font-bold text-zinc-700">{user.displayName?.[0] || 'U'}</div>}<div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"><Camera className="h-8 w-8 text-white drop-shadow-md" /></div><input type="file" accept="image/*" aria-label="Upload avatar image" className="absolute inset-0 cursor-pointer opacity-0" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (readerEvent) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = 150; canvas.height = 150; const ctx = canvas.getContext('2d'); if (!ctx) return; ctx.drawImage(img, 0, 0, 150, 150); updateActiveAgentAvatar(canvas.toDataURL('image/jpeg', 0.8)); }; img.src = String(readerEvent.target?.result || ''); }; reader.readAsDataURL(file); }} /></div><div className="text-center"><h3 className="text-xs font-bold uppercase tracking-widest text-zinc-300">Avatar Node</h3><p className="mt-1 text-[10px] text-zinc-600">Saved per active agent</p></div></div>
-              <div className="space-y-6"><div className="space-y-2"><label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><Settings2 className="h-3 w-3" /> Agent Profile</label><select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="maximus">Maximus</option><option value="beatrice">Beatrice</option></select></div><div className="space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Conversation Start Mode</label><select value={settings.conversationSeedMode || 'memory'} onChange={(event) => updateConversationSeedMode(event.target.value as ConversationSeedMode)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-sm text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50"><option value="memory">Use past conversation / memory</option><option value="news">Use web/news/search topic when backend supports it</option><option value="idea">Start with a useful product idea</option><option value="quiet">Stay quiet until Master E speaks</option></select></div><div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Tool Calling Power</div><div className="mt-4 space-y-3">{(['gmail', 'drive', 'context', 'vision'] as ToolKey[]).map((tool) => <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{tool}</span><input type="checkbox" checked={settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]} onChange={(event) => updateToolToggle(tool, event.target.checked)} className="h-5 w-5 accent-amber-500" /></label>)}</div><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => runDemoTool('Gmail', 'Read latest emails')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Gmail</button><button type="button" onClick={() => runDemoTool('Google Drive', 'Search recent files')} className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">Test Drive</button></div><label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3"><span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">Auto describe video/screen</span><input type="checkbox" checked={settings.autoDescribeVisual ?? true} onChange={(event) => setSettings((current) => ({ ...current, autoDescribeVisual: event.target.checked }))} className="h-5 w-5 accent-amber-500" /></label><p className="mt-3 text-[10px] uppercase tracking-widest text-zinc-600">{geoPermissionStatus}</p>{lastKnownLocation && <p className="mt-2 text-[10px] uppercase tracking-widest text-blue-300/80">Last location: {lastKnownLocation.latitude.toFixed(4)}, {lastKnownLocation.longitude.toFixed(4)}</p>}<button type="button" onClick={() => requestBrowserLocation().catch((error) => setVisualError(error.message))} className="mt-4 w-full rounded-xl border border-blue-500/25 bg-blue-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-300 transition-all hover:bg-blue-500/15">Allow Location Context</button></div>
 
-              {/* OAuth Permission Dashboard */}
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="flex flex-col items-center gap-4">
+                <div className="group relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-2 border-white/10 bg-zinc-900">
+                  {settings.avatarUrl || user.photoURL ? <img src={settings.avatarUrl || user.photoURL || ''} alt="Avatar" className="h-full w-full object-cover transition-opacity group-hover:opacity-50" /> : <div className="text-4xl font-bold text-zinc-700">{aiCallName[0] || 'U'}</div>}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"><Camera className="h-8 w-8 text-white drop-shadow-md" /></div>
+                  <input type="file" accept="image/*" aria-label="Upload avatar image" className="absolute inset-0 cursor-pointer opacity-0" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (readerEvent) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = 150; canvas.height = 150; const ctx = canvas.getContext('2d'); if (!ctx) return; ctx.drawImage(img, 0, 0, 150, 150); updateActiveAgentAvatar(canvas.toDataURL('image/jpeg', 0.8)); }; img.src = String(readerEvent.target?.result || ''); }; reader.readAsDataURL(file); }} />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><UserRound className="h-3 w-3" /> User Display Name</label>
+                <p className="text-[9px] text-zinc-600">What the AI will call you</p>
+                <input type="text" value={aiCallName} onChange={(e) => setAiCallName(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-lg text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" placeholder="Enter your name" />
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><UserRound className="h-3 w-3 text-amber-500/70" /> Persona Name</label>
+                <select value={activeAgent.id} onChange={(event) => handleAgentChange(event.target.value as AgentId)} className="w-full rounded-xl border border-white/10 bg-[#0A0A0B] p-4 text-xl text-white outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50">
+                  <option value="maximus">Maximus</option>
+                  <option value="beatrice">Beatrice</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><Volume2 className="h-3 w-3" /> AI Voice Style</label>
+                <div className="space-y-1.5">
+                  {['Breathy', 'Emotive', 'Expressive', 'Native Speaking', 'Multilingual'].map((style) => (
+                    <button key={style} onClick={() => setVoiceStyle(style)} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${voiceStyle === style ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20'}`}>
+                      <span className="text-sm font-medium">{style}</span>
+                      {voiceStyle === style && <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400">Active</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col space-y-2">
+                <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><BrainCircuit className="h-3 w-3 text-amber-500/70" /> System Prompt</label>
+                <textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} className="min-h-[200px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" />
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500"><MonitorUp className="h-3 w-3" /> Knowledge Base</label>
+                <div className="rounded-xl border border-dashed border-white/15 bg-black/20 px-5 py-8 text-center">
+                  <p className="text-xs text-zinc-500">Upload documents for AI context</p>
+                  <input type="file" accept=".pdf,.txt,.doc,.docx" multiple aria-label="Upload knowledge base files" className="mt-3 text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-500/15 file:px-3 file:py-1.5 file:text-[10px] file:font-bold file:uppercase file:tracking-wider file:text-amber-400" />
+                </div>
+              </div>
+
+              <div className="mt-auto border-t border-white/10 pt-6">
+                <div className="flex gap-3">
+                  <button onClick={saveProfile} className="flex-1 rounded-2xl bg-amber-500 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-black transition-all hover:bg-amber-400 active:scale-[0.99]">
+                    <Save className="mr-2 inline h-4 w-4" /> Save
+                  </button>
+                  <button onClick={onLogout} className="flex-1 rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:border-red-500/45 hover:bg-red-500/15 active:scale-[0.99]">
+                    <LogOut className="mr-2 inline h-4 w-4" /> Logout
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }} transition={{ type: 'spring', stiffness: 360, damping: 32, mass: 0.8 }} className="fixed inset-0 z-[190] flex flex-col overflow-y-auto bg-[#050505] font-sans pt-[calc(env(safe-area-inset-top)+44px)] pb-[calc(env(safe-area-inset-bottom)+24px)]">
+            <div className="sticky top-0 z-10 mx-auto flex w-full max-w-3xl items-center justify-between border-b border-white/[0.06] bg-[#050505]/80 p-6 backdrop-blur-xl">
+              <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-500/25 to-transparent" />
+              <h2 className="text-sm font-bold uppercase tracking-widest text-white">Integration Tools</h2>
+              <div className="flex gap-2">
+                <button onClick={saveSettings} className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-widest text-black transition-all hover:bg-amber-400 active:scale-95"><Save className="h-4 w-4" /> Save</button>
+                <button onClick={() => setShowSettings(false)} aria-label="Close settings" className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
+              </div>
+            </div>
+            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 p-6 pb-24">
+
+              <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.03] to-transparent p-4 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Tool Calling Power</div>
+                <div className="mt-4 space-y-3">
+                  {(['gmail', 'drive', 'context', 'vision'] as ToolKey[]).map((tool) => (
+                    <label key={tool} className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                      <span className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-300">{tool}</span>
+                      <input type="checkbox" checked={settings.enabledTools?.[tool] ?? DEFAULT_TOOL_TOGGLES[tool]} onChange={(event) => updateToolToggle(tool, event.target.checked)} className="h-5 w-5 cursor-pointer appearance-none rounded-md border-2 border-white/15 bg-transparent transition-all checked:border-amber-500 checked:bg-amber-500 hover:border-white/30" />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.03] to-transparent p-4 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Google OAuth Permissions</div>
                   <span className="text-[9px] font-mono text-zinc-600">{getGrantedCount(oauthScopes)}/{oauthScopes.length} granted</span>
                 </div>
                 <div className="w-full h-1.5 rounded-full bg-white/5 mb-4 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500"
-                    style={{ width: `${(getGrantedCount(oauthScopes) / Math.max(oauthScopes.length, 1)) * 100}%` }}
-                  />
+                  <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500" style={{ width: `${(getGrantedCount(oauthScopes) / Math.max(oauthScopes.length, 1)) * 100}%` }} />
                 </div>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {Object.entries(
-                    oauthScopes.reduce<Record<string, OAuthScopeState[]>>((acc, s) => {
-                      if (!acc[s.category]) acc[s.category] = [];
-                      acc[s.category].push(s);
-                      return acc;
-                    }, {}),
-                  ).map(([category, scopes]) => (
+                  {Object.entries(oauthScopes.reduce<Record<string, OAuthScopeState[]>>((acc, s) => { if (!acc[s.category]) acc[s.category] = []; acc[s.category].push(s); return acc; }, {})).map(([category, scopes]) => (
                     <div key={category} className="mb-3">
-                      <div className="text-[8px] font-bold uppercase tracking-[0.25em] text-zinc-600 mb-1.5 px-1">
-                        {category}
-                      </div>
+                      <div className="text-[8px] font-bold uppercase tracking-[0.25em] text-zinc-600 mb-1.5 px-1">{category}</div>
                       {scopes.map((scope) => (
-                        <div
-                          key={scope.id}
-                          className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-black/20 px-3 py-2.5"
-                        >
-                          <div
-                            className={`w-2 h-2 rounded-full shrink-0 ${
-                              scope.granted ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-zinc-700'
-                            }`}
-                          />
+                        <div key={scope.id} className="flex items-center gap-3 rounded-lg border border-white/[0.04] bg-black/20 px-3 py-2.5">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${scope.granted ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-zinc-700'}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-[11px] font-medium text-zinc-300">{scope.label}</span>
-                              <span
-                                className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
-                                  scope.risk === 'write'
-                                    ? 'bg-yellow-500/10 text-yellow-400'
-                                    : scope.risk === 'admin'
-                                      ? 'bg-red-500/10 text-red-400'
-                                      : 'bg-emerald-500/10 text-emerald-400'
-                                }`}
-                              >
-                                {scope.risk}
-                              </span>
+                              <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${scope.risk === 'write' ? 'bg-yellow-500/10 text-yellow-400' : scope.risk === 'admin' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{scope.risk}</span>
                             </div>
                             <p className="text-[9px] text-zinc-600 mt-0.5 truncate">{scope.requiredFor}</p>
                           </div>
-                          {scope.granted ? (
-                            <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider">Granted</span>
-                          ) : (
-                            <button
-                              onClick={() => handleRequestScope(scope)}
-                              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all"
-                            >
-                              Authorize
-                            </button>
-                          )}
+                          {scope.granted ? <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider">Granted</span> : <button onClick={() => handleRequestScope(scope)} className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/25 text-[9px] font-bold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all">Authorize</button>}
                         </div>
                       ))}
                     </div>
                   ))}
                 </div>
                 {getScopesToRequest(oauthScopes).length > 0 && (
-                  <button
-                    onClick={handleRequestAllScopes}
-                    className="mt-4 w-full rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300 transition-all hover:bg-amber-500/15"
-                  >
+                  <button onClick={handleRequestAllScopes} className="mt-4 w-full rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300 transition-all hover:bg-amber-500/15">
                     Request All ({getScopesToRequest(oauthScopes).length} remaining)
                   </button>
                 )}
               </div>
 
-              <div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Eburon Base Persona</label><textarea value={settings.persistentBasePrompt} onChange={(event) => setSettings((current) => ({ ...current, persistentBasePrompt: event.target.value }))} className="min-h-[180px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div><div className="flex flex-col space-y-2"><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{activeAgent.label} System Directives</label><textarea value={settings.systemPrompt} onChange={(event) => updateActiveAgentPrompt(event.target.value)} className="min-h-[260px] w-full resize-y rounded-xl border border-white/10 bg-[#0A0A0B] p-4 font-mono text-xs leading-relaxed text-zinc-300 outline-none transition-all focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50" /></div></div>
-              <div className="mt-auto border-t border-white/10 pt-6"><button onClick={onLogout} className="w-full rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.25em] text-red-300 transition-all hover:border-red-500/45 hover:bg-red-500/15 active:scale-[0.99]"><LogOut className="mr-2 inline h-4 w-4" /> Logout</button></div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }

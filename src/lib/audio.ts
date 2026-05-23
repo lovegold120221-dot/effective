@@ -1,6 +1,8 @@
 export class AudioStreamer {
   private audioContext: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private dataArray: Uint8Array | null = null;
   private queue: Float32Array[] = [];
   private isPlaying = false;
   private sampleRate = 24000;
@@ -11,6 +13,10 @@ export class AudioStreamer {
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
       sampleRate,
     });
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.connect(this.audioContext.destination);
   }
 
   addPCM16(base64: string) {
@@ -44,7 +50,7 @@ export class AudioStreamer {
     
     this.source = this.audioContext.createBufferSource();
     this.source.buffer = audioBuffer;
-    this.source.connect(this.audioContext.destination);
+    this.source.connect(this.analyser!);
     
     const currentTime = this.audioContext.currentTime;
     if (this.scheduledTime < currentTime) {
@@ -54,10 +60,21 @@ export class AudioStreamer {
     this.source.start(this.scheduledTime);
     this.scheduledTime += audioBuffer.duration;
     
-    // Play next seamlessly, not perfect but avoids large gaps
     setTimeout(() => {
         this.playNext();
     }, (audioBuffer.duration * 1000) - 20); 
+  }
+
+  getLevel(): number {
+    if (!this.analyser || !this.dataArray) return 0;
+    this.analyser.getByteTimeDomainData(this.dataArray);
+    let sum = 0;
+    for (let i = 0; i < this.dataArray.length; i++) {
+      const value = (this.dataArray[i] - 128) / 128;
+      sum += value * value;
+    }
+    const rms = Math.sqrt(sum / this.dataArray.length);
+    return Math.min(1, rms * 2.5);
   }
 
   stop() {

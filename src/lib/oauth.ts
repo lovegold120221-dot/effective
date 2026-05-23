@@ -67,7 +67,7 @@ export async function requestAdditionalScope(
     try {
       const google = (window as any).google;
       const client = google.accounts.oauth2.initTokenClient({
-        client_id: '811711024905', // from firebase config
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '811711024905',
         scope,
         callback: (response: any) => {
           if (response.error) {
