@@ -1,0 +1,12 @@
+- generic [ref=e8]:
+  - generic [ref=e9]:
+    - img [ref=e11]
+    - img [ref=e16]
+  - heading "Vep" [level=1] [ref=e18]
+  - paragraph [ref=e19]: Powered by Eburon AI
+  - button "Initialize Vep Identity" [ref=e21]
+  - generic [ref=e22]:
+    - img "Gmail" [ref=e23]
+    - img "Calendar" [ref=e24]
+    - img "Drive" [ref=e25]
+    - img "Sheets" [ref=e26]
