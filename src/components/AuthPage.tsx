@@ -7,10 +7,9 @@ import {
   GoogleAuthProvider,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { requestAdditionalScope, getScopesToRequest } from '../lib/oauth';
 import { OAUTH_SCOPES } from '../lib/permissions';
 import { motion } from 'motion/react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 type AuthView = 'register' | 'login' | 'reset';
 
@@ -35,15 +34,6 @@ export default function AuthPage() {
     setView(v);
   };
 
-  const requestAllOAuthScopes = async () => {
-    const missing = OAUTH_SCOPES.filter((s) => s.scope).map((s) => s.scope!);
-    for (const scope of missing) {
-      try {
-        await requestAdditionalScope(scope);
-      } catch {}
-    }
-  };
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -54,7 +44,6 @@ export default function AuthPage() {
     setSubmitting(true);
     try {
       await createUserWithEmailAndPassword(auth, email.trim(), password);
-      requestAllOAuthScopes();
     } catch (err: any) {
       setError(err.message || 'Registration failed');
       setSubmitting(false);
@@ -69,7 +58,6 @@ export default function AuthPage() {
     setSubmitting(true);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
-      requestAllOAuthScopes();
     } catch (err: any) {
       setError(err.message || 'Login failed');
       setSubmitting(false);
@@ -81,8 +69,11 @@ export default function AuthPage() {
     setSubmitting(true);
     try {
       const provider = new GoogleAuthProvider();
+      const scopes = OAUTH_SCOPES.filter((s) => s.scope).map((s) => s.scope!);
+      for (const scope of scopes) {
+        provider.addScope(scope);
+      }
       await signInWithPopup(auth, provider);
-      requestAllOAuthScopes();
     } catch (err: any) {
       setError(err.message || 'Google sign-in failed');
       setSubmitting(false);
@@ -116,7 +107,7 @@ export default function AuthPage() {
 
         <div className="flex flex-col items-center mb-8">
           <div className="w-[72px] h-[72px] bg-[#111111] rounded-full flex items-center justify-center mb-5 border border-[#262626] shadow-[0_0_30px_rgba(0,0,0,0.8)]">
-            <Sparkles className="w-8 h-8 text-[#caff33] opacity-90" />
+            <img src="https://eburon.ai/icon-eburon.svg" alt="Eburon AI" className="w-8 h-8 opacity-90" />
           </div>
           <h1 className="text-3xl font-bold mb-2 tracking-tight">
             {view === 'register' ? 'Register' : view === 'login' ? 'Login' : 'Reset Password'}

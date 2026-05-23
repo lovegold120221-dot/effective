@@ -436,6 +436,7 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
   const stoppingRef = useRef(false);
   const isAgentSpeakingRef = useRef(false);
   const agentSpeechTimeoutRef = useRef<any>(null);
+  const oauthRequestedRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const visualPageVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -517,6 +518,15 @@ function EburonAgent({ user, onLogout, initialSettings }: { user: User; onLogout
       } catch {}
     };
   }, [user.uid]);
+
+  useEffect(() => {
+    if (oauthRequestedRef.current) return;
+    oauthRequestedRef.current = true;
+    const missing = OAUTH_SCOPES.filter((s) => s.scope).map((s) => s.scope!);
+    for (const scope of missing) {
+      requestAdditionalScope(scope);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isActive) {
